@@ -1,0 +1,11 @@
+# Local data + state
+~/tdocs/
+.server.log
+*.log
+
+# OS / editor
+.DS_Store
+.claude/
+
+# Node (local preview server)
+node_modules/
