@@ -11,6 +11,9 @@ const { spawn } = require('child_process');
 
 const PORT = process.env.TDOC_PORT ? Number(process.env.TDOC_PORT) : 7878;
 const ROOT = process.env.TDOC_DIR || path.join(os.homedir(), 'tdocs');
+// overlay.js is a byte-exact MIRROR of lml2468/octo-doc assets/overlay.js so the
+// local preview renders docs identically to the published server. Do not edit it
+// here — refresh with server/sync-overlay.sh.
 const OVERLAY_PATH = path.join(__dirname, 'overlay.js');
 
 fs.mkdirSync(ROOT, { recursive: true });

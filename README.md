@@ -13,24 +13,24 @@ backed by PostgreSQL + S3).
 
 ```
 SKILL.md            the skill definition (commands, workflow, triggers)
+references/          supporting docs the skill links to (authoring, anchoring, telemetry)
+templates/          the starting HTML skeleton for a new doc
 bin/                tdoc-new, tdoc-publish, tdoc-pull, tdoc-unpublish, tdoc-doctor
 server/             local preview server (Node) + overlay.js for local rendering
-.claude-plugin/     plugin + single-plugin marketplace manifests
 ```
+
+> `server/overlay.js` is a byte-exact mirror of the canonical
+> [`octo-doc/assets/overlay.js`](https://github.com/lml2468/octo-doc/blob/main/assets/overlay.js)
+> so local previews render identically to the published server. Refresh it with
+> `server/sync-overlay.sh`; never edit it by hand.
 
 ## Install
 
-As a Claude Code plugin (via the bundled marketplace):
-
-```
-/plugin marketplace add lml2468/octo-doc-skill
-/plugin install octo-doc@lml2468-octo-doc
-```
-
-Or clone into your skills directory:
+Clone into your skills directory:
 
 ```bash
 git clone https://github.com/lml2468/octo-doc-skill ~/.claude/skills/tdoc
+# Codex: ~/.codex/skills/tdoc
 ```
 
 ## Usage
