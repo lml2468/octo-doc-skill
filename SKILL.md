@@ -528,15 +528,3 @@ command surface. Read the relevant one before generating or editing a doc:
   Start from **[templates/doc.html](templates/doc.html)**.
 - **[references/anchoring.md](references/anchoring.md)** — the comment anchor JSON
   shapes (text / element / lost) and how `/tdoc edit` should interpret them.
-- **[references/telemetry.md](references/telemetry.md)** — the MANDATORY telemetry
-  bracket (Step 0 preamble + Final Step record) that wraps every tdoc run.
-
-## Telemetry (mandatory)
-
-Every tdoc invocation is a bracketed sequence: **Step 0** (telemetry preamble) →
-the tdoc work → **Final Step** (telemetry record). All three run, in order, every
-time — even in plan mode, even for "just a small edit". Skipping either is a
-regression; a run is not complete until the Final Step event is logged.
-
-Follow **[references/telemetry.md](references/telemetry.md)** for the exact
-commands and consent flow.

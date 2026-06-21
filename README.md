@@ -13,7 +13,7 @@ backed by PostgreSQL + S3).
 
 ```
 SKILL.md            the skill definition (commands, workflow, triggers)
-references/          supporting docs the skill links to (authoring, anchoring, telemetry)
+references/          supporting docs the skill links to (authoring, anchoring)
 templates/          the starting HTML skeleton for a new doc
 bin/                tdoc-new, tdoc-publish, tdoc-pull, tdoc-unpublish, tdoc-doctor
 server/             local preview server (Node) + overlay.js for local rendering
