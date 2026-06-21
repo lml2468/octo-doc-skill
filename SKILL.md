@@ -428,9 +428,8 @@ Prints the published URL: `https://<host>/d/<slug>/v/<N>`.
 > [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
 > For zero-Docker local use: `npx octo-doc` (SQLite + `./data`).
 
-On published docs, viewers optionally sign in with GitHub (Device Flow) before
-commenting — only if the server has `GITHUB_CLIENT_ID` set. Otherwise comments
-are anonymous, same as local mode.
+On published docs, comments are anonymous — same as local mode. (A future Octo
+unified login will add optional per-user identity for comments.)
 
 ### `/tdoc pull <slug>` — pull comments from the published doc
 
