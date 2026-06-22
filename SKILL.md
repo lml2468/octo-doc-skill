@@ -173,10 +173,16 @@ for always-on sharing, with optional GitHub auth gating comments.
 Server runs at `http://localhost:7878` (override with `TDOC_PORT`) and serves:
 - `/` — index of all docs
 - `/d/<slug>/v/<n>` — a specific version (injects comment overlay)
-- `/api/comments` GET/POST — comment persistence
-- `/api/ping` — health check; responds `{"ok":true,"service":"tdoc"}`. The
-  `service` field is the identity marker — a foreign service answering 200 on
-  the port must NOT pass as tdoc.
+- `/v1/comments` GET/POST — comment persistence (GET returns the
+  `{data:[...],pagination:{...}}` envelope; POST returns `{data:{...}}`)
+- `/v1/ping` — health check; responds `{"data":{"ok":true,"service":"tdoc"}}`.
+  The `service` field is the identity marker — a foreign service answering 200
+  on the port must NOT pass as tdoc.
+
+All JSON endpoints speak the OCTO `/v1` wire contract: success is wrapped in a
+top-level `data` (lists add `pagination`); errors are `{"error":{"code","message"}}`
+with a fixed code enum. The local preview server mirrors this so the shared
+overlay behaves identically against local and published docs.
 
 ## Setup check
 
@@ -196,7 +202,7 @@ mkdir -p "$TDOC_DIR"
 # Check server is running. Identity-check the body — 200 alone is not proof
 # the answerer is tdoc; another local service can squat the port.
 TDOC_PORT="${TDOC_PORT:-7878}"
-PING_BODY=$(curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/api/ping" 2>/dev/null || true)
+PING_BODY=$(curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/v1/ping" 2>/dev/null || true)
 if printf '%s' "$PING_BODY" | grep -q '"service" *: *"tdoc"'; then
   echo "SERVER_OK"
 elif [ -n "$PING_BODY" ]; then
@@ -332,18 +338,18 @@ silently is the #1 source of regression complaints.
 6. **For each comment, post an agent reply** so the user sees the outcome
    in the doc UI. This is mandatory.
 
-   **For published docs** — POST to `$TDOC_BASE_URL/api/agent/reply`
+   **For published docs** — POST to `$TDOC_BASE_URL/v1/agent/replies`
    with the write token (env `TDOC_TOKEN`, or `~/.tdoc/config.json`):
    ```bash
    BASE="${TDOC_BASE_URL:-$(jq -r .base_url ~/.tdoc/config.json)}"
    TOKEN="${TDOC_TOKEN:-$(jq -r .token ~/.tdoc/config.json)}"
-   curl -sS -X POST "$BASE/api/agent/reply" \
+   curl -sS -X POST "$BASE/v1/agent/replies" \
      -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/json" \
      -d "{\"slug\":\"<slug>\",\"parent_id\":\"<comment_id>\",\"text\":\"<one or two sentences>\",\"status\":\"applied\",\"applied_in\":<n+1>}"
    ```
 
-   **For local-only docs** — POST to `http://localhost:7878/api/agent/reply`
+   **For local-only docs** — POST to `http://localhost:7878/v1/agent/replies`
    (no token needed).
 
    The reply text should be specific:
@@ -410,7 +416,7 @@ export TDOC_TOKEN="<write token>"          # from: octo-doc bootstrap
 
 To mint the first token on a fresh server:
 ```bash
-curl -s "$TDOC_BASE_URL/api/admin/bootstrap" | jq -r .token
+curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
 ```
 
 The CLI saves these to `~/.tdoc/config.json` (mode 600) on first run, so later
@@ -465,7 +471,7 @@ installed, or might be partway through. You **must** drive the flow from
    If not, ask the user whether they want to:
    - **publish to an existing octo-doc server** → ask for its URL, set
      `TDOC_BASE_URL`, mint a token with
-     `curl -s "$TDOC_BASE_URL/api/admin/bootstrap" | jq -r .token`, set `TDOC_TOKEN`.
+     `curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`, set `TDOC_TOKEN`.
    - **stand up their own server** → point them at
      [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md)
      (Docker compose, ~15 min on a $5 VPS) or, for a quick local test,
@@ -509,12 +515,12 @@ which dep is missing or whether the configured server is reachable.
 
 When the user reports a problem, check these first:
 
-- **`/api/publish` 404, or "string did not match the expected pattern" in the Publish modal** → the running LOCAL preview server is stale (old process, doesn't have current routes). Restart it: `pkill -f "$SKILL_DIR/server/server.js" && nohup node "$SKILL_DIR/server/server.js" > "$TDOC_DIR/.server.log" 2>&1 &`.
+- **`/v1/publish` 404, or "string did not match the expected pattern" in the Publish modal** → the running LOCAL preview server is stale (old process, doesn't have current routes). Restart it: `pkill -f "$SKILL_DIR/server/server.js" && nohup node "$SKILL_DIR/server/server.js" > "$TDOC_DIR/.server.log" 2>&1 &`.
 - **Comment popup doesn't appear when selecting text** → ensure overlay.js has the fix where a drag-without-artifact-intersection falls through to the text-selection branch. Check `overlay.js` mouseup handler: the `if (dragged) { ... return; }` block must only `return` when an artifact was actually hit.
-- **`/tdoc publish` says "no octo-doc server configured"** → set `TDOC_BASE_URL` (and `TDOC_TOKEN`). Mint a token on a fresh server with `curl -s "$TDOC_BASE_URL/api/admin/bootstrap" | jq -r .token`. See [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
+- **`/tdoc publish` says "no octo-doc server configured"** → set `TDOC_BASE_URL` (and `TDOC_TOKEN`). Mint a token on a fresh server with `curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`. See [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
 - **Publish returns 401 unauthorized** → the token is wrong or absent. The server accepts either a static `WRITE_TOKEN` (set in its env) or a bootstrap token. Confirm `TDOC_TOKEN` matches.
 - **Publish returns 413 html_too_large** → the document exceeds the server's `MAX_HTML_BYTES` (default 5 MiB). Trim inline assets or raise the cap server-side.
-- **Local doc URLs show the wrong content / weird JSON, or the server "is up" but docs 404** → another local service may be squatting the tdoc port. Run `curl -s http://localhost:7878/api/ping` — if the body lacks `"service":"tdoc"`, the answerer is not tdoc. Identify the squatter with `lsof -i :7878`, then free the port or run tdoc on another port via `TDOC_PORT=<port>`.
+- **Local doc URLs show the wrong content / weird JSON, or the server "is up" but docs 404** → another local service may be squatting the tdoc port. Run `curl -s http://localhost:7878/v1/ping` — if the body lacks `"service":"tdoc"`, the answerer is not tdoc. Identify the squatter with `lsof -i :7878`, then free the port or run tdoc on another port via `TDOC_PORT=<port>`.
 
 ## Authoring & references
 

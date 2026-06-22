@@ -21,5 +21,7 @@ fi
 [ -n "$TOKEN" ] || { echo "[tdoc] set TDOC_TOKEN." >&2; exit 1; }
 BASE_URL="${BASE_URL%/}"
 
-curl -sS -X DELETE "$BASE_URL/api/doc?slug=$SLUG" -H "Authorization: Bearer $TOKEN" | jq .
+# R6: the doc is a path resource — DELETE /v1/docs/{slug}. Success returns the
+# {data:{}} envelope; print it (or the error envelope) for visibility.
+curl -sS -X DELETE "$BASE_URL/v1/docs/$SLUG" -H "Authorization: Bearer $TOKEN" | jq .
 echo "Unpublished $SLUG."

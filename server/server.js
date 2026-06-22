@@ -25,6 +25,36 @@ function send(res, status, body, headers = {}) {
 function json(res, status, obj, headers = {}) {
   send(res, status, JSON.stringify(obj), { 'Content-Type': 'application/json', ...headers });
 }
+
+// --- /v1 envelope helpers ---------------------------------------------------
+// The local preview server mirrors the published octo-doc /v1 wire contract so
+// the shared overlay.js behaves identically against both. Success → {data}; a
+// list adds {pagination}; failure → {error:{code,message}} with a fixed enum.
+function dataEnv(res, status, data, headers = {}) {
+  json(res, status, { data }, headers);
+}
+function listEnv(res, items) {
+  json(res, 200, { data: items, pagination: { total: items.length, page: 1, page_size: items.length } });
+}
+const ERR_ENUM = {
+  400: 'VALIDATION_ERROR', 401: 'AUTH_REQUIRED', 403: 'FORBIDDEN', 404: 'NOT_FOUND',
+  409: 'CONFLICT', 413: 'PAYLOAD_TOO_LARGE', 415: 'UNSUPPORTED_MEDIA_TYPE',
+  429: 'RATE_LIMITED', 503: 'UPSTREAM_UNAVAILABLE',
+};
+function errEnv(res, status, message, details) {
+  const code = ERR_ENUM[status] || 'INTERNAL_ERROR';
+  const body = { code, message: message || code };
+  if (details) body.details = details;
+  json(res, status, { error: body });
+}
+// Map a stored comment/reply (schema uses `created`) to the wire DTO (R3:
+// `created_at`). Mirrors octo-doc's transport DTO so both servers look alike.
+function toWireComment(c) {
+  const out = { ...c, created_at: c.created };
+  delete out.created;
+  if (Array.isArray(c.replies)) out.replies = c.replies.map(toWireComment);
+  return out;
+}
 function readJson(p, fallback) {
   try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return fallback; }
 }
@@ -172,7 +202,7 @@ const server = http.createServer(async (req, res) => {
   // `service` is the identity marker health checks grep for — a foreign
   // process answering 200 on this port must not pass as tdoc (seen in the
   // wild: a daemon from another product bound 7878).
-  if (p === '/api/ping') return json(res, 200, { ok: true, service: 'tdoc' });
+  if (p === '/v1/ping') return dataEnv(res, 200, { ok: true, service: 'tdoc' });
 
   if (p === '/') return send(res, 200, indexPage(), { 'Content-Type': 'text/html; charset=utf-8' });
 
@@ -188,29 +218,30 @@ const server = http.createServer(async (req, res) => {
   }
 
   // --- COMMENTS (anonymous) ---
-  if (p === '/api/comments' && req.method === 'GET') {
+  if (p === '/v1/comments' && req.method === 'GET') {
     const slug = safeSlug(url.searchParams.get('slug'));
-    if (!slug) return json(res, 400, { error: 'invalid or missing slug' });
-    return json(res, 200, readCommentFile(path.join(ROOT, slug, 'comments.json')));
+    if (!slug) return errEnv(res, 400, 'invalid or missing slug');
+    const list = readCommentFile(path.join(ROOT, slug, 'comments.json')).map(toWireComment);
+    return listEnv(res, list);
   }
 
-  if (p === '/api/comments' && req.method === 'POST') {
-    if (!isLocalMutation(req)) return json(res, 403, { error: 'forbidden' });
+  if (p === '/v1/comments' && req.method === 'POST') {
+    if (!isLocalMutation(req)) return errEnv(res, 403, 'forbidden');
     const body = await readBody(req);
     const slug = safeSlug(body.slug);
     const { version, anchor, text, parent_id } = body;
-    if (!slug || !text) return json(res, 400, { error: 'invalid slug or missing text' });
+    if (!slug || !text) return errEnv(res, 400, 'invalid slug or missing text');
     const file = path.join(ROOT, slug, 'comments.json');
     const comments = readCommentFile(file);
     const created = new Date().toISOString();
     if (parent_id) {
       const parent = comments.find(c => c.id === parent_id);
-      if (!parent) return json(res, 404, { error: 'parent_not_found' });
+      if (!parent) return errEnv(res, 404, 'parent_not_found');
       if (!Array.isArray(parent.replies)) parent.replies = [];
       const reply = { id: `r_${Date.now()}`, parent_id, text, author: null, created, reactions: {} };
       parent.replies.push(reply);
       writeJson(file, comments);
-      return json(res, 200, reply);
+      return dataEnv(res, 200, toWireComment(reply));
     }
     const entry = {
       id: `c_${Date.now()}`,
@@ -225,7 +256,7 @@ const server = http.createServer(async (req, res) => {
     };
     comments.push(entry);
     writeJson(file, comments);
-    return json(res, 200, entry);
+    return dataEnv(res, 200, toWireComment(entry));
   }
 
   // Agent reply: posts a reply attributed to `tdoc-agent`, updates the
@@ -237,16 +268,16 @@ const server = http.createServer(async (req, res) => {
   //   question -> ❓
   // The agent always clears its previous emoji on this comment first, so a
   // stale "applied" emoji can't outlive a later "question" outcome.
-  if (p === '/api/agent/reply' && req.method === 'POST') {
-    if (!isLocalMutation(req)) return json(res, 403, { error: 'forbidden' });
+  if (p === '/v1/agent/replies' && req.method === 'POST') {
+    if (!isLocalMutation(req)) return errEnv(res, 403, 'forbidden');
     const body = await readBody(req);
     const slug = safeSlug(body.slug);
     const { parent_id, text, status: agentStatus, applied_in } = body;
-    if (!slug || !parent_id || !text) return json(res, 400, { error: 'invalid slug or missing parent_id/text' });
+    if (!slug || !parent_id || !text) return errEnv(res, 400, 'invalid slug or missing parent_id/text');
     const file = path.join(ROOT, slug, 'comments.json');
     const all = readCommentFile(file);
     const parent = all.find(c => c.id === parent_id);
-    if (!parent) return json(res, 404, { error: 'parent_not_found' });
+    if (!parent) return errEnv(res, 404, 'parent_not_found');
     if (!Array.isArray(parent.replies)) parent.replies = [];
     const reply = {
       id: `r_${Date.now()}`,
@@ -266,7 +297,7 @@ const server = http.createServer(async (req, res) => {
     }
     setAgentReaction(parent, agentStatus);
     writeJson(file, all);
-    return json(res, 200, reply);
+    return dataEnv(res, 200, toWireComment(reply));
   }
 
   // Re-anchor an existing comment without changing its text/thread state.
@@ -274,62 +305,62 @@ const server = http.createServer(async (req, res) => {
   // the agent's prior status emoji + flips the comment back to "open" — a
   // re-anchor means the comment now points at different text, so any old
   // agent verdict is stale.
-  if (p === '/api/comments' && req.method === 'PATCH') {
-    if (!isLocalMutation(req)) return json(res, 403, { error: 'forbidden' });
+  if (p === '/v1/comments' && req.method === 'PATCH') {
+    if (!isLocalMutation(req)) return errEnv(res, 403, 'forbidden');
     const body = await readBody(req);
     const slug = safeSlug(body.slug);
     const { id, anchor } = body;
-    if (!slug || !id || !anchor) return json(res, 400, { error: 'invalid slug or missing id/anchor' });
+    if (!slug || !id || !anchor) return errEnv(res, 400, 'invalid slug or missing id/anchor');
     const file = path.join(ROOT, slug, 'comments.json');
     const all = readCommentFile(file);
     const target = all.find(c => c.id === id);
-    if (!target) return json(res, 404, { error: 'not_found' });
+    if (!target) return errEnv(res, 404, 'not_found');
     target.anchor = anchor;
     target.status = 'open';
     delete target.applied_in;
     setAgentReaction(target, null);
     writeJson(file, all);
-    return json(res, 200, target);
+    return dataEnv(res, 200, toWireComment(target));
   }
 
-  if (p === '/api/comments' && req.method === 'DELETE') {
+  if (p === '/v1/comments' && req.method === 'DELETE') {
     // DELETE carries no body, so the JSON content-type check doesn't apply;
     // a cross-origin DELETE is not a CORS-simple request, but reject non-local
     // Origins explicitly for defense in depth.
     const dOrigin = req.headers['origin'];
     if (dOrigin) {
-      try { const h = new URL(dOrigin).hostname; if (!['localhost','127.0.0.1','::1'].includes(h)) return json(res, 403, { error: 'forbidden' }); }
-      catch { return json(res, 403, { error: 'forbidden' }); }
+      try { const h = new URL(dOrigin).hostname; if (!['localhost','127.0.0.1','::1'].includes(h)) return errEnv(res, 403, 'forbidden'); }
+      catch { return errEnv(res, 403, 'forbidden'); }
     }
     const slug = safeSlug(url.searchParams.get('slug'));
     const id = url.searchParams.get('id');
-    if (!slug || !id) return json(res, 400, { error: 'invalid slug or missing id' });
+    if (!slug || !id) return errEnv(res, 400, 'invalid slug or missing id');
     const file = path.join(ROOT, slug, 'comments.json');
     const all = readCommentFile(file);
     const top = all.find(c => c.id === id);
     if (top) {
       writeJson(file, all.filter(c => c.id !== id));
-      return json(res, 200, { ok: true });
+      return dataEnv(res, 200, {});
     }
     for (const c of all) {
       if (!Array.isArray(c.replies)) continue;
       if (c.replies.some(r => r.id === id)) {
         c.replies = c.replies.filter(r => r.id !== id);
         writeJson(file, all);
-        return json(res, 200, { ok: true });
+        return dataEnv(res, 200, {});
       }
     }
-    return json(res, 404, { error: 'not_found' });
+    return errEnv(res, 404, 'not_found');
   }
 
   // Reactions: anonymous on local, keyed by an "anon" pseudo-user so toggling works
-  if (p === '/api/reactions' && req.method === 'POST') {
-    if (!isLocalMutation(req)) return json(res, 403, { error: 'forbidden' });
+  if (p === '/v1/reactions' && req.method === 'POST') {
+    if (!isLocalMutation(req)) return errEnv(res, 403, 'forbidden');
     const body = await readBody(req);
     const slug = safeSlug(body.slug);
     const { comment_id, emoji } = body;
-    if (!slug || !comment_id || !emoji) return json(res, 400, { error: 'invalid slug or missing comment_id/emoji' });
-    if (emoji.length === 0 || emoji.length > 8) return json(res, 400, { error: 'invalid_emoji' });
+    if (!slug || !comment_id || !emoji) return errEnv(res, 400, 'invalid slug or missing comment_id/emoji');
+    if (emoji.length === 0 || emoji.length > 8) return errEnv(res, 400, 'invalid_emoji');
     const file = path.join(ROOT, slug, 'comments.json');
     const all = readCommentFile(file);
     function findTarget(list) {
@@ -342,7 +373,7 @@ const server = http.createServer(async (req, res) => {
       return null;
     }
     const target = findTarget(all);
-    if (!target) return json(res, 404, { error: 'not_found' });
+    if (!target) return errEnv(res, 404, 'not_found');
     if (!target.reactions) target.reactions = {};
     const users = target.reactions[emoji] || [];
     const me = 'anon';
@@ -352,7 +383,7 @@ const server = http.createServer(async (req, res) => {
     if (users.length === 0) delete target.reactions[emoji];
     else target.reactions[emoji] = users;
     writeJson(file, all);
-    return json(res, 200, { ok: true, reactions: target.reactions });
+    return dataEnv(res, 200, { ok: true, reactions: target.reactions });
   }
 
   // --- PUBLISH ---
@@ -360,21 +391,20 @@ const server = http.createServer(async (req, res) => {
   // first run); the browser modal shows a "this can take a minute" hint.
   // Honor TDOC_DRY_PUBLISH=1 for tests — echoes "would publish <slug>" and
   // returns a fake URL without invoking wrangler.
-  if (p === '/api/publish' && req.method === 'POST') {
-    if (!isLocalMutation(req)) return json(res, 403, { error: 'forbidden' });
+  if (p === '/v1/publish' && req.method === 'POST') {
+    if (!isLocalMutation(req)) return errEnv(res, 403, 'forbidden');
     const body = await readBody(req);
     const slug = safeSlug(body.slug);
-    if (!slug) return json(res, 400, { error: 'invalid slug' });
+    if (!slug) return errEnv(res, 400, 'invalid slug');
     if (process.env.TDOC_DRY_PUBLISH === '1') {
-      return json(res, 200, {
-        ok: true,
+      return dataEnv(res, 200, {
         dry: true,
         url: `https://example.workers.dev/d/${slug}/v/1`,
         stdout: `would publish ${slug}\n`,
       });
     }
     const bin = path.join(__dirname, '..', 'bin', 'tdoc-publish');
-    if (!fs.existsSync(bin)) return json(res, 500, { error: 'tdoc-publish script not found' });
+    if (!fs.existsSync(bin)) return errEnv(res, 500, 'tdoc-publish script not found');
     // Spawn hardening: an `error` listener (so an EACCES doesn't crash the whole
     // server with an unhandled 'error' event), a hard timeout (SIGTERM→SIGKILL)
     // so a hung wrangler/curl can't leave the HTTP response pending forever, and
@@ -385,27 +415,28 @@ const server = http.createServer(async (req, res) => {
     let out = '', err = '', settled = false, killed = false;
     const CAP = 256 * 1024; // 256 KiB of captured output is plenty
     const append = (buf, d) => (buf.length < CAP ? buf + d : buf);
-    const settle = (status, obj) => { if (settled) return; settled = true; clearTimeout(timer); json(res, status, obj); };
+    const settleOk = (data) => { if (settled) return; settled = true; clearTimeout(timer); dataEnv(res, 200, data); };
+    const settleErr = (status, message, details) => { if (settled) return; settled = true; clearTimeout(timer); errEnv(res, status, message, details); };
     const timer = setTimeout(() => { killed = true; proc.kill('SIGTERM'); setTimeout(() => proc.kill('SIGKILL'), 3000); }, 180000);
-    proc.on('error', (e) => settle(500, { error: 'publish_spawn_failed', detail: String(e && e.message || e) }));
+    proc.on('error', (e) => settleErr(500, 'publish_spawn_failed', { detail: String(e && e.message || e) }));
     proc.stdout.on('data', d => { out = append(out, d); });
     proc.stderr.on('data', d => { err = append(err, d); });
     proc.on('close', (code) => {
-      if (killed) return settle(504, { error: 'publish_timeout', stdout: out, stderr: err });
-      if (code !== 0) return settle(500, { error: 'publish_failed', code, stdout: out, stderr: err });
+      if (killed) return settleErr(503, 'publish_timeout', { stdout: out, stderr: err });
+      if (code !== 0) return settleErr(500, 'publish_failed', { code, stdout: out, stderr: err });
       // tdoc-publish ends with "Published: <URL>"
       const m = out.match(/Published:\s*(https?:\/\/\S+)/);
-      settle(200, { ok: true, url: m ? m[1] : null, stdout: out });
+      settleOk({ url: m ? m[1] : null, stdout: out });
     });
     return;
   }
 
-  send(res, 404, 'Not found');
+  errEnv(res, 404, 'Not found');
  } catch (e) {
   // Body too large, malformed request, or unexpected throw — respond cleanly
   // instead of crashing the server with an unhandled rejection.
   const tooBig = e && /too large/i.test(String(e.message));
-  if (!res.headersSent) json(res, tooBig ? 413 : 500, { error: tooBig ? 'payload_too_large' : 'internal_error' });
+  if (!res.headersSent) errEnv(res, tooBig ? 413 : 500, tooBig ? 'payload_too_large' : 'internal_error');
  }
 });
 

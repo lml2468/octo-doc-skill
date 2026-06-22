@@ -165,18 +165,18 @@ printf '[]\n' > "$DOC_DIR/comments.json"
 info "scaffolded $DOC_DIR (v1)"
 
 # ───────────────────────── ensure local server up ────────────────────────
-# A 200 on /api/ping is not proof the answerer is tdoc — another local
+# A 200 on /v1/ping is not proof the answerer is tdoc — another local
 # service can squat the port (seen in the wild on 7878). Identity-check the
 # body for `"service":"tdoc"` and only treat a marker match as "up".
 TDOC_PORT="${TDOC_PORT:-7878}"
 
 tdoc_ping() {
-  curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/api/ping" 2>/dev/null \
+  curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/v1/ping" 2>/dev/null \
     | grep -q '"service" *: *"tdoc"'
 }
 
 port_answers() {
-  curl -sf --max-time 2 -o /dev/null "http://localhost:${TDOC_PORT}/api/ping" 2>/dev/null
+  curl -sf --max-time 2 -o /dev/null "http://localhost:${TDOC_PORT}/v1/ping" 2>/dev/null
 }
 
 SERVER_UP=0

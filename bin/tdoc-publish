@@ -42,7 +42,7 @@ Set the server you want to publish to (self-hosted octo-doc):
     export TDOC_TOKEN="<write token>"            # from: octo-doc bootstrap
 
 To get a token from a fresh server:
-    curl -s "\$TDOC_BASE_URL/api/admin/bootstrap" | jq -r .token
+    curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
 
 Then re-run: /tdoc publish $SLUG
 EOF
@@ -52,7 +52,7 @@ BASE_URL="${BASE_URL%/}"
 
 if [ -z "$TOKEN" ]; then
   echo "[tdoc] no write token. Set TDOC_TOKEN or add it to $CONFIG_FILE." >&2
-  echo "       Get one with: curl -s \"$BASE_URL/api/admin/bootstrap\" | jq -r .token" >&2
+  echo "       Get one with: curl -s \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token" >&2
   exit 1
 fi
 
@@ -91,23 +91,26 @@ upload_version() {
       --rawfile html "$html_path" --slurpfile meta "$META_FILE" \
       '{slug:$slug, version:$version, html:$html, meta: $meta[0]}')"
   fi
-  local payload_file resp ok
+  local payload_file resp
   payload_file="$(mktemp -t tdoc-upload.XXXXXX)"
   printf '%s' "$payload" > "$payload_file"
-  resp="$(curl -sS --connect-timeout 10 --max-time 120 -X POST "$BASE_URL/api/docs" \
+  resp="$(curl -sS --connect-timeout 10 --max-time 120 -X POST "$BASE_URL/v1/docs" \
     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
     --data-binary @"$payload_file")" || { rm -f "$payload_file"; echo "[tdoc] v$v upload: network error" >&2; return 1; }
   rm -f "$payload_file"
-  ok="$(echo "$resp" | jq -r '.ok // false')"
-  if [ "$ok" = "true" ]; then
-    local merged; merged="$(echo "$resp" | jq -r '.mergedComments // 0')"
+  # /v1 success envelope: { "data": { slug, version, url, size, aids, merged_comments } }.
+  # A failure envelope is { "error": { code, message, ... } } with no data.
+  local data
+  data="$(echo "$resp" | jq -c '.data // empty')"
+  if [ -n "$data" ] && [ "$data" != "null" ]; then
+    local merged; merged="$(echo "$data" | jq -r '.merged_comments // 0')"
     if [ "$merged" != "0" ] && [ "$merged" != "null" ]; then
-      echo "[tdoc] v$v uploaded ($(echo "$resp" | jq -r '.size // "?"') bytes, +$merged comment(s) merged)"
+      echo "[tdoc] v$v uploaded ($(echo "$data" | jq -r '.size // "?"') bytes, +$merged comment(s) merged)"
     else
-      echo "[tdoc] v$v uploaded ($(echo "$resp" | jq -r '.size // "?"') bytes)"
+      echo "[tdoc] v$v uploaded ($(echo "$data" | jq -r '.size // "?"') bytes)"
     fi
   else
-    echo "[tdoc] v$v upload FAILED: $resp" >&2; return 1
+    echo "[tdoc] v$v upload FAILED: $(echo "$resp" | jq -r '.error.message // .' 2>/dev/null || echo "$resp")" >&2; return 1
   fi
 }
 

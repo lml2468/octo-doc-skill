@@ -24,7 +24,7 @@ command -v curl >/dev/null 2>&1 && ok "curl present" || bad "curl missing"
 echo
 
 echo "Local preview server (:$TDOC_PORT):"
-PING="$(curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/api/ping" 2>/dev/null || true)"
+PING="$(curl -sf --max-time 2 "http://localhost:${TDOC_PORT}/v1/ping" 2>/dev/null || true)"
 if printf '%s' "$PING" | grep -q '"service":"tdoc"'; then
   ok "local server up at http://localhost:${TDOC_PORT}"
 else
@@ -45,14 +45,14 @@ else
   if [ -n "${TDOC_MOCK_NO_SERVER:-}" ]; then
     bad "server $BASE_URL unreachable (mock)"
   else
-    RP="$(curl -sf --max-time 5 "$BASE_URL/api/ping" 2>/dev/null || true)"
+    RP="$(curl -sf --max-time 5 "$BASE_URL/v1/ping" 2>/dev/null || true)"
     if printf '%s' "$RP" | grep -q '"service":"tdoc"'; then
       ok "server reachable: $BASE_URL"
     else
-      bad "server $BASE_URL did not answer /api/ping — check the URL / that it's running"
+      bad "server $BASE_URL did not answer /v1/ping — check the URL / that it's running"
     fi
     if [ -n "$TOKEN" ]; then ok "write token configured"; else
-      warn "no write token. Get one: curl -s \"$BASE_URL/api/admin/bootstrap\" | jq -r .token"
+      warn "no write token. Get one: curl -s \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token"
     fi
   fi
 fi
