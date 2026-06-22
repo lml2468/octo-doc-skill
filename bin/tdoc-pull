@@ -23,18 +23,14 @@ OUT="$TDOC_DIR/$SLUG/comments.json"
 mkdir -p "$(dirname "$OUT")"
 
 RAW="$(curl -sS --connect-timeout 10 --max-time 30 "$BASE_URL/v1/comments?slug=$SLUG&version=all")"
-# /v1 list envelope: { "data": [...], "pagination": {...} }. Unwrap to the array,
-# and normalize the wire's created_at back to the local comments.json schema
-# (which uses `created`). Tolerate a bare array from older servers.
-REMOTE="$(printf '%s' "$RAW" | jq -c '
-  (if type == "array" then . else (.data // null) end)
-  | if type == "array"
-    then map(
-      (if has("created_at") then .created = .created_at | del(.created_at) else . end)
-      | if (.replies | type) == "array"
-        then .replies |= map(if has("created_at") then .created = .created_at | del(.created_at) else . end)
-        else . end)
-    else null end' 2>/dev/null || true)"
+# Unwrap the /v1 list envelope ({ data: [...], pagination }) and rename the
+# wire's created_at back to the local comments.json schema (which uses created).
+# A non-array result (error envelope, proxy error page) drops to null and is
+# caught by the guard below.
+norm='if has("created_at") then .created = .created_at | del(.created_at) else . end'
+REMOTE="$(printf '%s' "$RAW" | jq -c "
+  (.data // null)
+  | if type == \"array\" then map($norm | .replies |= map($norm)) else null end" 2>/dev/null || true)"
 if ! printf '%s' "$REMOTE" | jq -e 'type == "array"' >/dev/null 2>&1; then
   echo "tdoc-pull: server did not return a comment array (network error or bad slug?). Local file untouched." >&2
   printf '%s\n' "$RAW" | head -c 400 >&2; echo >&2
