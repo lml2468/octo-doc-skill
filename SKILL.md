@@ -157,7 +157,8 @@ artifacts, not files the user maintains. Authoring interface is a prompt.
 Every edit creates a new version. Comments anchor to highlighted text or to
 artifacts (images, SVG, canvas, video) and are used to regenerate the next
 version. Publishing pushes to a self-hosted octo-doc server (Docker or `npx`)
-for always-on sharing, with optional GitHub auth gating comments.
+for always-on sharing; writes need a bearer token, reads and comments are public
+by default (set `PRIVATE=1` to require the token for reads too).
 
 ## Storage layout
 
@@ -416,7 +417,7 @@ export TDOC_TOKEN="<write token>"          # from: octo-doc bootstrap
 
 To mint the first token on a fresh server:
 ```bash
-curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
+curl -sS -X POST "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
 ```
 
 The CLI saves these to `~/.tdoc/config.json` (mode 600) on first run, so later
@@ -471,7 +472,7 @@ installed, or might be partway through. You **must** drive the flow from
    If not, ask the user whether they want to:
    - **publish to an existing octo-doc server** → ask for its URL, set
      `TDOC_BASE_URL`, mint a token with
-     `curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`, set `TDOC_TOKEN`.
+     `curl -sS -X POST "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`, set `TDOC_TOKEN`.
    - **stand up their own server** → point them at
      [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md)
      (Docker compose, ~15 min on a $5 VPS) or, for a quick local test,
@@ -517,7 +518,7 @@ When the user reports a problem, check these first:
 
 - **`/v1/publish` 404, or "string did not match the expected pattern" in the Publish modal** → the running LOCAL preview server is stale (old process, doesn't have current routes). Restart it: `pkill -f "$SKILL_DIR/server/server.js" && nohup node "$SKILL_DIR/server/server.js" > "$TDOC_DIR/.server.log" 2>&1 &`.
 - **Comment popup doesn't appear when selecting text** → ensure overlay.js has the fix where a drag-without-artifact-intersection falls through to the text-selection branch. Check `overlay.js` mouseup handler: the `if (dragged) { ... return; }` block must only `return` when an artifact was actually hit.
-- **`/tdoc publish` says "no octo-doc server configured"** → set `TDOC_BASE_URL` (and `TDOC_TOKEN`). Mint a token on a fresh server with `curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`. See [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
+- **`/tdoc publish` says "no octo-doc server configured"** → set `TDOC_BASE_URL` (and `TDOC_TOKEN`). Mint a token on a fresh server with `curl -sS -X POST "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`. See [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
 - **Publish returns 401 unauthorized** → the token is wrong or absent. The server accepts either a static `WRITE_TOKEN` (set in its env) or a bootstrap token. Confirm `TDOC_TOKEN` matches.
 - **Publish returns 413 html_too_large** → the document exceeds the server's `MAX_HTML_BYTES` (default 5 MiB). Trim inline assets or raise the cap server-side.
 - **Local doc URLs show the wrong content / weird JSON, or the server "is up" but docs 404** → another local service may be squatting the tdoc port. Run `curl -s http://localhost:7878/v1/ping` — if the body lacks `"service":"tdoc"`, the answerer is not tdoc. Identify the squatter with `lsof -i :7878`, then free the port or run tdoc on another port via `TDOC_PORT=<port>`.
