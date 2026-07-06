@@ -1,7 +1,7 @@
 # Authoring HTML docs
 
-Rules for generating a doc's `index.html` (referenced by `/tdoc new` and
-`/tdoc edit`). The starting skeleton is [`templates/doc.html`](../templates/doc.html).
+Rules for generating a doc's `index.html` (referenced by `/octo new` and
+`/octo edit`). The starting skeleton is [`templates/doc.html`](../templates/doc.html).
 
 ## HTML generation rules
 
@@ -12,7 +12,7 @@ Rules for generating a doc's `index.html` (referenced by `/tdoc new` and
   don't rely on top-level navigation or parent-frame access.
 - **The comment overlay is injected by the server** — don't add commenting UI
   yourself.
-- **Don't add** a "made with tdoc" footer, version selector, or share button —
+- **Don't add** a "made with octo" footer, version selector, or share button —
   the shell handles those.
 - Prefer **SVG over canvas** for diagrams (commentable text). Use canvas for heavy
   simulations.
@@ -80,7 +80,7 @@ Every doc must work on mobile out of the box:
 - **Don't position-fixed elements at the top** — the overlay's 44px top bar lives there.
 - **Don't add a bottom footer** — the overlay injects its own.
 
-## Comment anchor stability (important for `/tdoc edit`)
+## Comment anchor stability (important for `/octo edit`)
 
 **The system handles this for you.** Element anchors are identity-based, not
 path-based: at publish time the server stamps every commentable artifact with a

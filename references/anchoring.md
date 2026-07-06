@@ -1,6 +1,6 @@
 # Comment anchoring
 
-How comments bind to a doc, and how `/tdoc edit` should interpret them.
+How comments bind to a doc, and how `/octo edit` should interpret them.
 
 Comments are persisted with one of two anchor shapes:
 
@@ -43,5 +43,5 @@ don't preserve ids manually; just regenerate the doc naturally. Comments on
 unchanged artifacts stay anchored; comments on artifacts you genuinely replaced go
 `kind: "lost"` automatically.
 
-See [authoring.md](./authoring.md#comment-anchor-stability-important-for-tdoc-edit)
+See [authoring.md](./authoring.md#comment-anchor-stability-important-for-octo-edit)
 for how to keep artifacts stable across versions.
