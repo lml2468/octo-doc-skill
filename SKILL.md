@@ -5,10 +5,11 @@ description: |
   document from a prompt (interactive models, SVG diagrams, simulations,
   strategy docs, research write-ups, product specs, explainer pages,
   design docs, RFCs, case studies, post-mortems, technical proposals,
-  vision docs, one-pagers, decision frameworks), serve it at localhost
-  with text- and artifact-anchored inline commenting, and regenerate
-  new versions from comments. Publishes to a self-hosted octo-doc
-  server for always-on sharing (Docker, no Cloudflare).
+  vision docs, one-pagers, decision frameworks), publish it to a
+  self-hosted octo-doc server with text- and artifact-anchored inline
+  commenting, and regenerate new versions from comments. Docs are
+  private by default; a per-doc share code grants read + comment
+  (Docker, no Cloudflare).
 
   Use when asked to "write a doc", "draft this", "publish this",
   "design doc", "PRD", "one-pager", "research write-up", "case study",
@@ -89,21 +90,21 @@ description: |
     </div></body></html>
     HTML
 
-    # ...then hand it to octo. Returns the local URL on the last line,
-    # plus a published URL on a second line if --publish is given.
+    # ...then hand it to octo. It saves the HTML as a server-side draft
+    # and prints the draft URL. Follow with `octo publish <slug>` to
+    # freeze it, and `octo share <slug>` for a read+comment link.
     OCTO_NEW_CALLER=document-release \
       octo new \
         --slug "release-notes-$(date +%Y%m%d)" \
         --title "Release notes — $(date +%Y-%m-%d)" \
-        --html-file "$HTML_FILE" \
-        --publish
+        --html-file "$HTML_FILE"
     ```
 
   Set OCTO_NEW_CALLER (or CLAUDE_SKILL_NAME) to the calling skill name
   so meta.json records who scaffolded the doc. `octo new` validates
   that the input is real HTML (refuses markdown by mistake), guards
-  against clobbering an existing slug, and ensures the local preview is
-  up before returning the URL.
+  against clobbering an existing local slug, and saves the draft on the
+  server (author-only) before printing the draft URL.
 
   Use other skills (NOT octo) when:
     - The user explicitly wants markdown / .md output
@@ -155,24 +156,23 @@ triggers:
 
 Open-source, collaborative take on Jesse Pollak's bdocs. Docs are HTML build
 artifacts, not files the user maintains. Authoring interface is a prompt.
-Every edit creates a new version. Comments anchor to highlighted text or to
-artifacts (images, SVG, canvas, video) and are used to regenerate the next
-version. Publishing pushes to a self-hosted octo-doc server (Docker) for
-always-on sharing; writes need a bearer token, reads and comments are public
-by default (set `PRIVATE=1` to require the token for reads too).
+Authoring is **remote-first**: a doc lives on a self-hosted octo-doc server from
+creation as a mutable **draft**; publishing promotes the draft to an immutable
+version. Comments anchor to highlighted text or to artifacts (images, SVG, canvas,
+video) and drive the next iteration. Documents are **private by default** — only
+the write-token holder (author) can read them; a per-doc share **code** grants
+read + comment to anyone with the link.
 
 **This skill is a thin authoring layer over the `octo` CLI.** Every mechanical
-step — scaffolding, local preview, publish, pull, replies — is one `octo`
-subcommand. The agent's job is the creative part: turning a prompt into HTML and
-deciding how to address comments. There is no bash plumbing, no Node server, and
-no `jq`/`curl`/`python3` dependency; the CLI is a single static binary.
+step — draft, publish, share, pull, replies — is one `octo` subcommand. The
+agent's job is the creative part: turning a prompt into HTML and deciding how to
+address comments. The CLI is a single static binary; no `jq`/`curl`/`node`.
 
 ## The `octo` CLI
 
 One binary, built from the [octo-doc](https://github.com/Mininglamp-OSS/octo-doc)
-repo (`cmd/octo`). It embeds the canonical `overlay.js` and renders local previews
-through the **same** code the published server uses — so a local preview is
-byte-identical to the published doc, with no mirrored overlay to keep in sync.
+repo (`cmd/octo`). Authoring and preview happen against a running octo-doc server
+(a hosted instance, or the local Docker stack) — there is no local preview server.
 
 Install it (see `/octo onboard`): download the prebuilt binary for your platform
 from the [releases page](https://github.com/Mininglamp-OSS/octo-doc/releases) and
@@ -183,81 +183,69 @@ Config (env wins, then `~/.octo/config.json`; the legacy `TDOC_*` names and
 
 | Var | Purpose |
 | --- | ------- |
-| `OCTO_BASE_URL` | server to publish to (e.g. `https://docs.example.com`) |
-| `OCTO_TOKEN` | write token (sent as `Authorization: Bearer`) |
-| `OCTO_DIR` | local doc store (default `~/octo-docs`, else an existing `~/tdocs`) |
-| `OCTO_PORT` | local preview port (default `7878`) |
+| `OCTO_BASE_URL` | server to author against (e.g. `https://docs.example.com`) |
+| `OCTO_TOKEN` | write token — the **author** credential (`Authorization: Bearer`) |
+| `OCTO_CODE` | a doc share **code** — the **reader** credential (for pull/comment) |
+| `OCTO_DIR` | local working copy (default `~/octo-docs`, else an existing `~/tdocs`) |
 
-## Storage layout
+## Access model
+
+- **author** = the write token. Read everything incl. drafts; publish, promote,
+  delete; mint/rotate share codes.
+- **reader** = a per-doc share code (`octo share`). Read published versions +
+  comment/react. Never drafts or publishing.
+- no credential → the server 404s (a private doc never confirms it exists).
+
+Browsers carry the code as `?code=` (exchanged for an HttpOnly cookie); the CLI
+sends the credential as `Authorization: Bearer`. Full model:
+[docs/AUTH.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/AUTH.md).
+
+## Storage layout (local working copy)
 
 ```
 ~/octo-docs/
   <slug>/
     meta.json          # { title, slug, created, versions: [...] }
-    v1/index.html
-    v2/index.html
-    comments.json      # [{ id, version, anchor, text, status, replies, reactions }]
+    v1/index.html      # published-version sources
+    draft/index.html   # the current draft's source (mirrors the server draft)
+    comments.json      # pulled comments (cache of the server's, for edit)
 ```
 
-The preview server runs at `http://localhost:7878` (override with `OCTO_PORT`) and
-serves:
-- `/` — index of all docs
-- `/d/<slug>/v/<n>` — a specific version (injects the comment overlay)
-- `/v1/comments` GET/POST/PATCH/DELETE — comment persistence (envelope-wrapped)
-- `/v1/agent/replies` POST — agent replies (drives the edit workflow)
-- `/v1/reactions` POST — emoji reactions
-- `/v1/ping` — health check; responds `{"data":{"ok":true,"service":"octo"}}`.
-  The `service` field is the identity marker — a foreign service answering 200
-  on the port must NOT pass as octo.
-
-All JSON endpoints speak the OCTO `/v1` wire contract: success is wrapped in a
-top-level `data` (lists add `pagination`); errors are `{"error":{"code","message"}}`
-with a fixed code enum. The preview server mirrors this so the shared overlay
-behaves identically against local and published docs.
+The server is the source of truth; the local copy is the HTML the agent generates
+and the pulled comments it edits against.
 
 ## Setup check
 
 ```bash
-# Is the CLI installed?
 command -v octo >/dev/null 2>&1 || echo "octo CLI not found — run /octo onboard"
-
-# Is the local preview up and is it ours? `octo preview status` identity-checks
-# the port (200 alone is not proof — another local service can squat it).
-octo preview status
+octo doctor   # checks the CLI + whether the configured server is reachable
 ```
-
-If the preview is down, start it (idempotent — a no-op if already healthy):
-```bash
-octo preview start
-```
-
-If the port is held by a foreign service, `octo preview start` refuses and tells
-you to free it or set `OCTO_PORT` to a different port.
 
 ## Commands
 
 ### `/octo new <prompt>` — create a new doc
 
 1. Pick a slug from the prompt (kebab-case, ≤4 words).
-2. Author a **fully self-contained** HTML file for v1. Start from
+2. Author a **fully self-contained** HTML file. Start from
    [templates/doc.html](templates/doc.html) and follow
    [references/authoring.md](references/authoring.md) (self-contained, default
    styling — do NOT re-style, required `.wrap` container, responsive defaults). If
    the prompt implies a model, simulation, or diagram, build the live thing —
    don't just describe it.
-3. Hand the HTML to the CLI, which scaffolds `meta.json` + `comments.json`, starts
-   the preview if needed, and prints the local URL:
+3. Hand the HTML to the CLI, which saves it as a **draft on the server** (private,
+   author-only), keeps a local working copy, and prints the draft URL:
    ```bash
    octo new --slug <slug> --title "<title>" --html-file <path> --prompt "<the prompt>" --open
    ```
-   (Use `--html-stdin` to pipe the HTML instead of writing a temp file.)
-4. Report the printed URL to the user.
+   (`--html-stdin` pipes the HTML instead of a temp file. `--open` opens the draft
+   in a browser — the URL carries the write token as `?code=`, exchanged for a
+   cookie so the author can view the private draft.)
+4. Report the draft URL. When the doc is ready, `/octo publish` freezes it.
 
-`octo new` is also the **programmatic entry other skills use** for
-agent-to-agent doc handoff — see the description block above. It validates the
-input is real HTML (refuses markdown), never clobbers an existing slug without
-`--force`, and prints the local URL last (plus a published URL on a second line
-if `--publish` is given) so callers can `tail -n 1`/`tail -n 2` to capture it.
+`octo new` is also the **programmatic entry other skills use** for agent-to-agent
+doc handoff — see the description block above. It validates the input is real HTML
+(refuses markdown), never clobbers an existing local slug without `--force`, and
+prints the draft URL last so callers can `tail -n 1` it.
 
 ### `/octo edit <slug> [<extra prompt>]` — new version from comments
 
@@ -266,137 +254,105 @@ This is a hard requirement, not a suggestion. The user can't tell which
 comments you handled unless you reply on each one. Skipping comments
 silently is the #1 source of regression complaints.
 
-1. Pull the latest comments (if the doc is published) so you edit against
-   community feedback, then read them:
+1. Pull the latest comments so you edit against real feedback, then read them:
    ```bash
-   octo pull <slug>    # published docs only; no-op message if not published
+   octo pull <slug>
    ```
    Read `~/octo-docs/<slug>/comments.json` and filter to `status: "open"`.
-2. Read the latest version's `index.html`.
+2. Read the latest published version's `index.html` (or the current `draft/`).
 3. For EACH open comment, decide one of three outcomes BEFORE writing:
    - **applied** — the comment is clear and you can act on it.
-   - **partial** — you applied part of it but couldn't fully address it
-     (e.g. the user asked to "add a chart and explain compound interest";
-     you added the chart but the explanation is shallow).
-   - **question** — you can't act without clarification (the comment is
-     ambiguous, contradicts another comment, or refers to content that
-     doesn't exist in the current doc).
+   - **partial** — you applied part of it but couldn't fully address it.
+   - **question** — you can't act without clarification (ambiguous, contradictory,
+     or refers to content that doesn't exist).
 4. Regenerate the HTML incorporating every `applied` and `partial` comment. A
    comment's anchor has:
-   - `anchor.text` — the exact text the user highlighted (may span across
-     paragraphs and inline elements)
-   - `anchor.context_before` / `anchor.context_after` — surrounding text
-     (~60 chars each side) for disambiguation when the same text appears
-     multiple times
-5. Add the new version with the CLI (writes `v<n+1>/index.html`, appends to
-   `meta.json`, prints the new URL):
+   - `anchor.text` — the exact highlighted text (may span paragraphs/inline elements)
+   - `anchor.context_before` / `anchor.context_after` — ~60 chars each side for
+     disambiguation when the same text appears more than once
+5. Save the new iteration as the doc's **draft** (overwrites the current draft):
    ```bash
    octo version-add --slug <slug> --html-file <new-html> --prompt "<what changed>"
    ```
 6. **For each comment, post an agent reply** so the user sees the outcome in the
-   doc UI. This is mandatory. Use `octo reply` — it targets the local preview by
-   default, or the configured server with `--remote` (use `--remote` for a
-   published doc so the reply lands where readers see it):
+   doc UI. This is mandatory:
    ```bash
    octo reply --slug <slug> --parent <comment_id> \
      --text "<one or two sentences>" --status applied --applied-in <n+1>
-   # published doc: add --remote
    ```
-
    The reply text should be specific:
-   - applied: "Rewrote the second paragraph in English. The section heading
-     is now 'What an Agent Needs'."
-   - partial: "Added the chart but the compound-interest explainer is still
-     basic — want me to flesh it out?"
-   - question: "Two of your comments asked for different tones — formal in
-     the intro and casual in section II. Which should I prioritize?"
+   - applied: "Rewrote the second paragraph in English; the heading is now 'What an Agent Needs'."
+   - partial: "Added the chart but the compound-interest explainer is still basic — flesh it out?"
+   - question: "Two comments asked for different tones — formal intro vs casual §II. Which wins?"
 
-   The reply endpoint flips the comment's status server-side AND drops a status
-   emoji on the parent comment (✅ applied, 🟡 partial, ❓ question), clearing any
-   previous agent emoji first. You don't need a separate reaction request. Users
-   see the verdict at a glance from the comment cards without expanding replies.
+   The reply flips the comment's status server-side AND drops a status emoji on the
+   parent (✅ applied, 🟡 partial, ❓ question), clearing any prior agent emoji. No
+   separate reaction request needed. If the user later re-anchors a comment, the
+   server resets it to `open` and `/octo edit` picks it up again.
+7. When the iteration is ready, `octo publish <slug>` promotes the draft to the
+   next immutable version.
 
-   If a comment is later re-anchored by the user (anchor moved to new text), the
-   server automatically clears the agent's emoji and resets `status: "open"`.
-   Re-running `/octo edit` will pick it up again.
-7. Open `http://localhost:7878/d/<slug>/v/<n+1>` (the URL `octo version-add`
-   printed).
-
-If there are zero open comments AND no extra prompt, ask the user what to change before doing anything.
+If there are zero open comments AND no extra prompt, ask the user what to change first.
 
 ### `/octo fork <slug> [<new-slug>]` — copy a doc
 
 ```bash
 octo fork <slug> [<new-slug>]
 ```
-Copies the doc under a new slug, resets its comments to `[]`, and marks the title
-`(fork)`. Defaults the new slug to `<slug>-fork`.
+Copies the local working copy under a new slug, resets its comments, and marks the
+title `(fork)`. Defaults the new slug to `<slug>-fork`.
 
 ### `/octo list` — show all docs
 
 ```bash
 octo list
 ```
-Prints each doc's slug, latest version, open-comment count, and title.
+Prints each local doc's slug, latest version, open-comment count, and title.
 
-### `/octo preview` — manage the local preview server
+### `/octo publish <slug>` — promote the draft to an immutable version
 
-```bash
-octo preview start     # start in the background (idempotent), print the URL
-octo preview status    # is it up, and is it ours?
-octo preview stop      # stop the background server
-octo preview serve     # run in the foreground (blocks; for debugging)
-```
-
-### `/octo publish <slug>` — publish to your self-hosted octo-doc server
-
-Publishes every version of `<slug>` to a public URL on a self-hosted
-[octo-doc](https://github.com/Mininglamp-OSS/octo-doc) server. No Cloudflare
-account, no wrangler, no R2/KV — just an HTTP server you (or anyone) runs.
-
-Local always stays $0/anonymous; publishing is opt-in. Point the CLI at your
-server with two env vars (12-factor):
+Promotes the doc's current server-side draft to a new permanent version.
 
 ```bash
 export OCTO_BASE_URL="https://your-host"   # or http://localhost:8080
 export OCTO_TOKEN="<write token>"          # from: octo-doc bootstrap
+octo publish <slug>                        # → https://<host>/d/<slug>/v/<N>
 ```
 
-To mint the first token on a fresh server:
-```bash
-curl -sS -X POST "$OCTO_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
-```
+The CLI saves `{base_url, token}` to `~/.octo/config.json` (mode 600) on first run,
+so later commands need no env. The write token is sent as `Authorization: Bearer`
+(never in a URL).
 
-The CLI saves these to `~/.octo/config.json` (mode 600) on first run, so later
-publishes need no env. Uploads are authenticated with the Bearer token in the
-`Authorization` header (never the URL).
-
-```bash
-octo publish <slug>
-```
-
-Prints the published URL: `https://<host>/d/<slug>/v/<N>`.
-
-> **Self-hosting the server:** the fastest path is `docker compose up -d` (app +
-> Caddy auto-TLS). On a $5 VPS you're live in ~15 minutes — see
+> **Self-hosting the server:** `docker compose up -d` (app + Caddy auto-TLS). ~15
+> min on a $5 VPS — see
 > [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md).
 
-On published docs, comments are anonymous — same as local mode. (A future Octo
-unified login will add optional per-user identity for comments.)
+### `/octo share <slug>` — make it readable + commentable
 
-### `/octo pull <slug>` — pull comments from the published doc
+New docs are **private** (author-only). To let others read and comment, mint a
+share code and hand out the link:
 
-Merges `~/octo-docs/<slug>/comments.json` with comments collected on the server
-(non-destructive; full cross-version history; a `.bak` is written before merge).
-Run before `/octo edit` to regenerate using community feedback.
+```bash
+octo share <slug>            # prints  .../d/<slug>/v/<N>?code=<code>
+octo share <slug> --revoke   # clear the code — existing links stop working
+```
+
+Re-running rotates the code (old links stop working). Anyone with a `?code=` link
+gets read + comment; it never grants publishing or deletion.
+
+### `/octo pull <slug>` — pull comments from the server
+
+Merges `~/octo-docs/<slug>/comments.json` with the server's comments
+(non-destructive; full history; a `.bak` is written before merge). Run before
+`/octo edit` to regenerate against real feedback.
 
 ```bash
 octo pull <slug>
 ```
 
-### `/octo unpublish <slug>` — remove from your server
+### `/octo unpublish <slug>` — remove from the server
 
-Deletes all versions, meta, and comments for `<slug>` from the server. Local
+Deletes all versions, the draft, and comments for `<slug>` from the server. Local
 files are untouched.
 
 ```bash
@@ -405,36 +361,29 @@ octo unpublish <slug>
 
 ### `/octo onboard` — guided first-time setup
 
-You are walking a user through octo onboarding. The user might have nothing
-installed, or might be partway through. Drive the flow from `octo doctor` output,
-not assumed state.
+You are walking a user through octo onboarding. Drive the flow from `octo doctor`
+output, not assumed state.
 
-**Algorithm:**
-
-1. Check the CLI is installed: `command -v octo`. If not, install it — download
-   the release binary for the user's platform from
+1. Check the CLI is installed: `command -v octo`. If not, install it — download the
+   release binary for the user's platform from
    [releases](https://github.com/Mininglamp-OSS/octo-doc/releases) and put it on
-   PATH, or `go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest` if Go
-   is present. Then re-check.
-2. Run `octo doctor` and read its output (non-destructive).
+   PATH, or `go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest`.
+2. Run `octo doctor` (non-destructive).
 3. Check whether a server is configured (`OCTO_BASE_URL` / `~/.octo/config.json`).
-   If not, ask the user whether they want to:
-   - **publish to an existing octo-doc server** → ask for its URL, set
-     `OCTO_BASE_URL`, mint a token with
+   If not, ask the user whether to:
+   - **use an existing octo-doc server** → ask for its URL, set `OCTO_BASE_URL`,
+     mint a token with
      `curl -sS -X POST "$OCTO_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`,
      set `OCTO_TOKEN`.
-   - **stand up their own server** → point them at
-     [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md)
-     (Docker compose, ~15 min on a $5 VPS).
+   - **stand up their own** →
+     [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md).
 4. Once `octo doctor` reports the server reachable + a token configured, offer to
-   create + publish a sample doc with `/octo new` then `/octo publish`.
-
-**Important behavioral rules:**
+   create + publish a sample doc: `/octo new` → `/octo publish` → `/octo share`.
 
 - NEVER skip the doctor check before suggesting a step.
 - ALWAYS show the user what you're running.
-- The write token is a secret — never put it in a URL or echo it into shared
-  logs. It belongs in the `Authorization: Bearer` header only.
+- The write token is a secret — it belongs in the `Authorization: Bearer` header,
+  not a shared log.
 
 ### `/octo update` — update the CLI to the latest release
 
@@ -443,11 +392,9 @@ octo update --check    # report current-vs-latest without installing
 octo update            # download + checksum-verify + replace the binary
 ```
 
-`octo update` fetches the latest [release](https://github.com/Mininglamp-OSS/octo-doc/releases),
-verifies the download against the release `SHA256SUMS`, and atomically replaces
-the running binary. Restart any foreground `octo preview serve` afterward so the
-new embedded overlay takes effect (a backgrounded `octo preview start` picks it up
-on its next start).
+`octo update` fetches the latest
+[release](https://github.com/Mininglamp-OSS/octo-doc/releases), verifies against
+`SHA256SUMS`, and atomically replaces the running binary.
 
 ### `/octo doctor` — health check, no changes
 
@@ -455,32 +402,23 @@ on its next start).
 octo doctor
 ```
 
-Prints the CLI version + doc store, the local preview status, and (if configured)
-the remote server's reachability + whether a write token is set. Use this when the
-user reports a problem to localize which piece is missing.
+Prints the CLI version + doc store and (if configured) the remote server's
+reachability + whether a write token is set.
 
 ## Troubleshooting
 
-When the user reports a problem, check these first:
-
-- **`octo: command not found`** → the CLI isn't installed or isn't on PATH. Run
-  `/octo onboard` (downloads the release binary), or add its directory to PATH.
-- **Comment popup doesn't appear when selecting text** → the overlay is embedded
-  in the CLI; update it with `octo update` to get the latest overlay, then restart
-  the preview (`octo preview stop && octo preview start`).
-- **`octo publish` says "no octo-doc server configured"** → set `OCTO_BASE_URL`
-  (and `OCTO_TOKEN`). Mint a token on a fresh server with
-  `curl -sS -X POST "$OCTO_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`. See
-  [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md).
-- **Publish returns 401 unauthorized** → the token is wrong or absent. The server
-  accepts either a static `WRITE_TOKEN` (set in its env) or a bootstrap token.
-  Confirm `OCTO_TOKEN` matches.
-- **Publish returns 413 html_too_large** → the document exceeds the server's
-  `MAX_HTML_BYTES` (default 5 MiB). Trim inline assets or raise the cap server-side.
-- **Local doc URLs show wrong content / the port "is up" but docs 404** → another
-  local service may be squatting the octo port. Run `octo preview status` — if it
-  reports "foreign service", identify the squatter with `lsof -i :7878`, then free
-  the port or run octo on another port via `OCTO_PORT=<port>`.
+- **`octo: command not found`** → not installed / not on PATH. Run `/octo onboard`.
+- **A doc URL 404s in the browser** → docs are private by default. Open it with a
+  share link (`octo share <slug>` → `?code=` URL), or as the author. A wrong/rotated
+  code also 404s.
+- **`octo new`/`publish` says "no octo-doc server configured"** → set
+  `OCTO_BASE_URL` (and `OCTO_TOKEN`). Mint a token with
+  `curl -sS -X POST "$OCTO_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`.
+- **401 unauthorized** on an author op → the write token is wrong or absent.
+  Confirm `OCTO_TOKEN` matches the server's `WRITE_TOKEN` or a bootstrap token.
+- **413 html_too_large** → the doc exceeds `MAX_HTML_BYTES` (default 5 MiB).
+- **Comment/overlay behaves oddly** → the overlay ships in the CLI + server; run
+  `octo update` for the latest, and make sure the server is up to date too.
 
 ## Authoring & references
 
