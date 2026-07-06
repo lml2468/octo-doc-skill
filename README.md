@@ -1,17 +1,32 @@
 # octo-doc-skill
 
-The **tdoc agent skill** for [octo-doc](https://github.com/lml2468/octo-doc) — a
-Claude Code / Codex skill that turns a prompt into a self-contained interactive
+The **octo agent skill** for [octo-doc](https://github.com/Mininglamp-OSS/octo-doc)
+— a Claude Code / Codex skill that turns a prompt into a self-contained interactive
 HTML document, serves it locally with text- and artifact-anchored commenting, and
 publishes it to your self-hosted octo-doc server.
 
-This repository contains only the agent-side tooling. The server it publishes to
-lives in [lml2468/octo-doc](https://github.com/lml2468/octo-doc) (a Go service
-backed by PostgreSQL + S3).
+This repository contains only the agent-side authoring guide. All mechanical work
+is done by the **`octo` CLI**, a single static binary built from the
+[octo-doc](https://github.com/Mininglamp-OSS/octo-doc) repo (`cmd/octo`). The
+server the CLI publishes to lives there too (a Go service backed by PostgreSQL + S3).
+
+## How it fits together
+
+```
+you (a prompt)  →  this skill (authoring)  →  octo CLI (scaffold/preview/publish)  →  octo-doc server
+```
+
+The skill is a thin layer: it decides slugs, generates HTML, and interprets
+comments. Everything else — creating the doc on disk, running the local preview,
+publishing, pulling comments, posting agent replies — is a single `octo`
+subcommand. There is **no bundled server and no `overlay.js` mirror**: the CLI
+embeds the canonical overlay and renders local previews through the exact same code
+the published server uses, so a local preview is byte-identical to the published
+doc and can never drift.
 
 ## Compatibility
 
-The skill is a client of the octo-doc server, so it tracks the server's contract:
+The skill tracks the octo-doc server's contract through the `octo` CLI:
 
 - **API:** the `/v1` envelope API (`/v1/docs`, `/v1/comments`, `/v1/reactions`,
   `/v1/agent/replies`, `/v1/admin/bootstrap`). Writes use `Authorization: Bearer
@@ -19,16 +34,9 @@ The skill is a client of the octo-doc server, so it tracks the server's contract
   provider — reads and comments are public, `PRIVATE=1` gates reads.
 - **Bootstrap:** `POST /v1/admin/bootstrap` mints the first write token, and only
   when the server was started without a static `WRITE_TOKEN`.
-- **Overlay:** `server/overlay.js` is a byte-exact **mirror** of the server's
-  `assets/overlay.js`, so local previews render identically to the published
-  server. Re-sync it after the server's overlay changes:
-
-  ```bash
-  server/sync-overlay.sh   # copies from a sibling ../octo-doc checkout, else fetches main
-  ```
-
-  Last synced to octo-doc `main` @ `6ce5404` (2026-07-06). If the server's overlay
-  moves ahead, run the script and commit the refreshed mirror.
+- **Overlay:** the CLI embeds octo-doc's canonical `assets/overlay.js` at build
+  time — there is no mirror to sync. `octo update` pulls a newer CLI (and thus a
+  newer overlay) when the server moves ahead.
 
 ## Layout
 
@@ -36,37 +44,43 @@ The skill is a client of the octo-doc server, so it tracks the server's contract
 SKILL.md            the skill definition (commands, workflow, triggers)
 references/          supporting docs the skill links to (authoring, anchoring)
 templates/          the starting HTML skeleton for a new doc
-bin/                tdoc-new, tdoc-publish, tdoc-pull, tdoc-unpublish, tdoc-doctor
-server/             local preview server (Node) + overlay.js for local rendering
 ```
 
-> `server/overlay.js` is a byte-exact mirror of the canonical
-> [`octo-doc/assets/overlay.js`](https://github.com/lml2468/octo-doc/blob/main/assets/overlay.js)
-> so local previews render identically to the published server. Refresh it with
-> `server/sync-overlay.sh`; never edit it by hand.
+All runtime behavior lives in the `octo` CLI, not this repo.
 
 ## Install
 
-Clone into your skills directory:
+Clone the skill into your skills directory:
 
 ```bash
-git clone https://github.com/lml2468/octo-doc-skill ~/.claude/skills/tdoc
-# Codex: ~/.codex/skills/tdoc
+git clone https://github.com/lml2468/octo-doc-skill ~/.claude/skills/octo
+# Codex: ~/.codex/skills/octo
+```
+
+Then install the `octo` CLI (or run `/octo onboard`, which does this for you):
+
+```bash
+# Prebuilt binary — pick your platform from the releases page:
+#   https://github.com/Mininglamp-OSS/octo-doc/releases
+# Download octo_<os>_<arch>, chmod +x, and put it on your PATH. Or, with Go:
+go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest
 ```
 
 ## Usage
 
 ```bash
 # point the CLI at your octo-doc server
-export TDOC_BASE_URL="https://docs.example.com"
-export TDOC_TOKEN="<write token>"   # from: octo-doc bootstrap
+export OCTO_BASE_URL="https://docs.example.com"
+export OCTO_TOKEN="<write token>"   # from: octo-doc bootstrap
 
-/tdoc new "an interactive explainer of compound interest"
-/tdoc publish my-explainer          # → https://docs.example.com/d/my-explainer/v/1
+/octo new "an interactive explainer of compound interest"
+/octo publish my-explainer          # → https://docs.example.com/d/my-explainer/v/1
 ```
 
 See [SKILL.md](SKILL.md) for the full command surface (`new`, `edit`, `publish`,
-`pull`, `fork`, `list`, `doctor`, `unpublish`, `onboard`, `update`).
+`pull`, `fork`, `list`, `preview`, `doctor`, `unpublish`, `onboard`, `update`).
+Config resolves from `OCTO_*` env (the legacy `TDOC_*` names still work as a
+fallback) then `~/.octo/config.json`.
 
 ## Credits
 
