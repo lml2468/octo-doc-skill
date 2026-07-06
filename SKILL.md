@@ -512,6 +512,20 @@ which dep is missing or whether the configured server is reachable.
 "$SKILL_DIR/bin/tdoc-doctor"
 ```
 
+## Server compatibility
+
+This skill targets the octo-doc server's **`/v1` envelope API** — every write is
+`Authorization: Bearer <token>` and every response is unwrapped from
+`{ "data": … }`. Endpoints used: `/v1/docs` (publish), `/v1/comments` (list/post),
+`/v1/reactions`, `/v1/agent/replies`, `/v1/admin/bootstrap` (**POST**, and only on
+a server started without a static `WRITE_TOKEN`). There is no login provider —
+reads and comments are public; `PRIVATE=1` gates reads.
+
+`server/overlay.js` is a byte-exact mirror of the server's `assets/overlay.js` so
+local previews render identically to the published server. When the server's
+overlay changes, re-sync and commit it: `server/sync-overlay.sh` (last synced to
+octo-doc `main` @ `6ce5404`, 2026-07-06).
+
 ## Troubleshooting
 
 When the user reports a problem, check these first:
