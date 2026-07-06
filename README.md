@@ -9,6 +9,27 @@ This repository contains only the agent-side tooling. The server it publishes to
 lives in [lml2468/octo-doc](https://github.com/lml2468/octo-doc) (a Go service
 backed by PostgreSQL + S3).
 
+## Compatibility
+
+The skill is a client of the octo-doc server, so it tracks the server's contract:
+
+- **API:** the `/v1` envelope API (`/v1/docs`, `/v1/comments`, `/v1/reactions`,
+  `/v1/agent/replies`, `/v1/admin/bootstrap`). Writes use `Authorization: Bearer
+  <token>`; responses are unwrapped from `{ "data": … }`. There is no login
+  provider — reads and comments are public, `PRIVATE=1` gates reads.
+- **Bootstrap:** `POST /v1/admin/bootstrap` mints the first write token, and only
+  when the server was started without a static `WRITE_TOKEN`.
+- **Overlay:** `server/overlay.js` is a byte-exact **mirror** of the server's
+  `assets/overlay.js`, so local previews render identically to the published
+  server. Re-sync it after the server's overlay changes:
+
+  ```bash
+  server/sync-overlay.sh   # copies from a sibling ../octo-doc checkout, else fetches main
+  ```
+
+  Last synced to octo-doc `main` @ `6ce5404` (2026-07-06). If the server's overlay
+  moves ahead, run the script and commit the refreshed mirror.
+
 ## Layout
 
 ```
