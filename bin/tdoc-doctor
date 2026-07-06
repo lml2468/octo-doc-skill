@@ -46,13 +46,13 @@ else
     bad "server $BASE_URL unreachable (mock)"
   else
     RP="$(curl -sf --max-time 5 "$BASE_URL/v1/ping" 2>/dev/null || true)"
-    if printf '%s' "$RP" | grep -q '"service":"tdoc"'; then
+    if printf '%s' "$RP" | grep -q '"service":"octo-doc"'; then
       ok "server reachable: $BASE_URL"
     else
       bad "server $BASE_URL did not answer /v1/ping — check the URL / that it's running"
     fi
     if [ -n "$TOKEN" ]; then ok "write token configured"; else
-      warn "no write token. Get one: curl -s \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token"
+      warn "no write token. Get one: curl -sS -X POST \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token"
     fi
   fi
 fi

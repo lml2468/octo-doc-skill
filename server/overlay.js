@@ -55,8 +55,18 @@
   //   UI_ALL        — UI_CONTAINERS plus per-element decorations (anchor marks,
   //                   outlines, hover affordances, menus). Use this for event
   //                   delegation guards ("did the user click *our* chrome?").
-  const UI_CONTAINERS = '.tdoc-bar, .tdoc-oldver-strip, .tdoc-popup, .tdoc-margin-comment, .tdoc-modal-bg, #tdoc-comment-layer, .tdoc-footer';
+  const UI_CONTAINERS = '.tdoc-bar, .tdoc-oldver-strip, .tdoc-popup, .tdoc-margin-comment, .tdoc-modal-bg, #tdoc-comment-layer, .tdoc-footer, .tdoc-reanchor-banner';
   const UI_ALL = UI_CONTAINERS + ', .tdoc-anchor-mark, .tdoc-element-outline, .tdoc-hover-outline, .tdoc-comment-pill, .tdoc-emoji-picker, .tdoc-secondary-menu';
+  //   UI_TEXT       — every overlay element that carries its own visible text
+  //                   AND lives outside the article (appended to <body>). Used
+  //                   ONLY to exclude our chrome from the flattened text
+  //                   projection, so saved anchor context never captures UI
+  //                   strings (the FAB's "💬 0", the re-anchor banner, the
+  //                   Comment pill, menus). This is UI_CONTAINERS plus the
+  //                   text-bearing body-level widgets — but NOT .tdoc-anchor-mark,
+  //                   which wraps real document text (surroundContents) and must
+  //                   stay in the projection.
+  const UI_TEXT = UI_CONTAINERS + ', .tdoc-fab, .tdoc-comment-pill, .tdoc-emoji-picker, .tdoc-secondary-menu';
 
   // ========== Geometry helpers ==========
   // Position `box` as an absolutely-positioned overlay around `el`, inflated
@@ -73,13 +83,85 @@
   // Each logical group is one comment block; rules within a group are tightly
   // packed. The narrow visual mode lives at the bottom and overrides base.
   const css = `
+  /* ========== Design tokens ==========
+     Single source of truth for the overlay's visual identity. Values mirror
+     DESIGN.md (repo root) — keep the two in sync. Every .tdoc-* chrome rule
+     below references these vars rather than hardcoding hex, so a rebrand is a
+     one-block edit. */
+  :root {
+    /* Brand + ink */
+    --octo-primary: #1652f0;
+    --octo-primary-hover: #1245d0;
+    --octo-ink: #1a1a1a;
+    --octo-ink-strong: #111;
+    --octo-ink-soft: #444;
+    --octo-muted: #888;
+    --octo-muted-dark: #666;
+    --octo-faint: #aaa;
+    --octo-bar-text: #555;
+    /* Surfaces + lines */
+    --octo-surface: #fff;
+    --octo-surface-subtle: #f0f1f4;
+    --octo-surface-hover: #e5e6ea;
+    --octo-border: #e5e5e7;
+    --octo-hairline: #eee;
+    --octo-ink-panel: #0a0a0a;
+    /* Document-body neutrals (default template) */
+    --octo-code-bg: #f0f0ee;
+    --octo-pre-bg: #f7f7f5;
+    --octo-pre-border: #e8e7e3;
+    --octo-quote-rule: #d9d8d3;
+    --octo-quote-text: #6b6a66;
+    /* Accents */
+    --octo-highlight: #fff7d0;
+    --octo-highlight-active: #ffd84d;
+    --octo-danger: #c33;
+    --octo-accent: #3ecf8e;
+    /* Semantic — agent status */
+    --octo-ok-bg: #e8f5ed;    --octo-ok-fg: #1a7340;
+    --octo-warn-bg: #fff4dc;  --octo-warn-fg: #8a5a00;
+    --octo-ask-bg: #ffe7e7;   --octo-ask-fg: #a52323;
+    /* Semantic — reactions */
+    --octo-mine-bg: #e8eeff;
+    --octo-agent-bg: #f3eaff; --octo-agent-border: #c3a8f0; --octo-agent-fg: #5a2da8;
+    /* Radii */
+    --octo-radius-sm: 4px;
+    --octo-radius-md: 6px;
+    --octo-radius-lg: 10px;
+    --octo-radius-xl: 12px;
+    --octo-radius-pill: 999px;
+    /* Elevation (DESIGN.md Elevation section) */
+    --octo-shadow-sm: 0 1px 2px rgba(0,0,0,0.02);
+    --octo-shadow-card: 0 2px 8px rgba(0,0,0,0.05);
+    --octo-shadow-menu: 0 8px 24px rgba(0,0,0,0.12);
+    --octo-shadow-pop: 0 12px 40px rgba(0,0,0,0.4);
+    --octo-shadow-fab: 0 4px 16px rgba(22,82,240,0.35);
+    --octo-shadow-active: 0 4px 16px rgba(22,82,240,0.18);
+    --octo-focus-ring: 0 0 0 3px rgba(22,82,240,0.15);
+  }
   /* Layout */
+  /* Keyboard focus: one consistent ring across all interactive chrome, so
+     tabbing through the overlay is visible and accessible. :focus-visible only
+     shows it for keyboard users, not on mouse click. */
+  .tdoc-bar button:focus-visible, .tdoc-version-toggle:focus-visible,
+  .tdoc-chip:focus-visible, .tdoc-menu button:focus-visible,
+  .tdoc-secondary-menu button:focus-visible, .tdoc-version-menu button:focus-visible,
+  .tdoc-emoji-picker button:focus-visible, .tdoc-react-chip:focus-visible,
+  .tdoc-react-add:focus-visible, .tdoc-reanchor-btn:focus-visible,
+  .tdoc-reply-toggle:focus-visible, .tdoc-comment-pill:focus-visible,
+  .tdoc-fab:focus-visible, .tdoc-margin-comment .copy-md:focus-visible,
+  .tdoc-margin-comment .del:focus-visible, .tdoc-popup .submit:focus-visible,
+  .tdoc-popup .head .x:focus-visible, .tdoc-reply-submit:focus-visible,
+  .tdoc-modal button:focus-visible {
+    outline: none !important;
+    box-shadow: var(--octo-focus-ring) !important;
+  }
   /* Default: text is selectable everywhere in the document body, so users
      can highlight prose inside any container (including custom-div-wrapped
      artifacts like transcript panes). UI chrome opts out explicitly via
      .tdoc-* selectors below. Media artifacts (img/svg/canvas/video) are
      non-selectable by their nature so they don't need an exception. */
-  body { padding-top: 44px !important; padding-bottom: 24px; -webkit-user-select: text; user-select: text; }
+  body { padding-top: 49px !important; padding-bottom: 24px; -webkit-user-select: text; user-select: text; }
   body .tdoc-bar, body .tdoc-bar *, body #tdoc-comment-layer, body #tdoc-comment-layer *, body .tdoc-hover-outline, body .tdoc-comment-pill, body .tdoc-emoji-picker, body .tdoc-secondary-menu, body .tdoc-anchor-mark.tdoc-anchor-mark-element, body .tdoc-drag-marquee, body .tdoc-modal, body .tdoc-modal * { -webkit-user-select: none !important; user-select: none !important; }
   body .tdoc-modal .code, body .tdoc-modal textarea, body .tdoc-modal input { -webkit-user-select: text !important; user-select: text !important; }
   /* Reserve the 320px comment column on the right. The article centers
@@ -94,6 +176,20 @@
   body:not(.tdoc-narrow) :where(body > .wrap, body > main, body > article, body > .content, body > .container) {
     margin-left: auto !important;
     margin-right: auto !important;
+  }
+  /* Bare docs (no wrapper element — content is a direct child of <body>) still
+     get a comfortable centered reading measure, so prose never hugs the viewport
+     edge. Scoped with :not(:has(wrapper)) so wrapped docs (handled above) aren't
+     double-inset, and skipped when comments reserve the right column (that path
+     already pads the body) or in narrow/drawer mode. */
+  body:not(.tdoc-has-comments):not(.tdoc-narrow):not(:has(> .wrap, > main, > article, > .content, > .container)) {
+    padding-left: max(24px, calc((100% - 720px) / 2)) !important;
+    padding-right: max(24px, calc((100% - 720px) / 2)) !important;
+    padding-top: 73px !important;
+  }
+  body.tdoc-narrow:not(:has(> .wrap, > main, > article, > .content, > .container)) {
+    padding-left: 20px !important;
+    padding-right: 20px !important;
   }
   /* The body right-padding reserves space for the comment column. The
      article centers itself naturally inside the remaining (viewport minus
@@ -111,31 +207,36 @@
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     font-size: 17px;
     line-height: 1.6;
-    color: #1a1a1a;
-    background: #fff;
+    color: var(--octo-ink);
+    background: var(--octo-surface);
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
+    overflow-wrap: anywhere;
   }
-  :where(body h1) { font-size: 38px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 20px; color: #1a1a1a; }
-  :where(body h2) { font-size: 27px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; margin: 44px 0 14px; color: #1a1a1a; }
-  :where(body h3) { font-size: 21px; line-height: 1.35; font-weight: 700; margin: 32px 0 10px; color: #1a1a1a; }
-  :where(body h4) { font-size: 17px; font-weight: 700; margin: 22px 0 6px; color: #1a1a1a; }
-  :where(body h5, body h6) { font-size: 14px; font-weight: 600; margin: 16px 0 4px; color: #1a1a1a; text-transform: uppercase; letter-spacing: 0.06em; }
+  :where(body h1) { font-size: 38px; line-height: 1.15; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 20px; color: var(--octo-ink); }
+  :where(body h2) { font-size: 27px; line-height: 1.25; font-weight: 700; letter-spacing: -0.01em; margin: 44px 0 14px; color: var(--octo-ink); }
+  :where(body h3) { font-size: 21px; line-height: 1.35; font-weight: 700; margin: 32px 0 10px; color: var(--octo-ink); }
+  :where(body h4) { font-size: 17px; font-weight: 700; margin: 22px 0 6px; color: var(--octo-ink); }
+  :where(body h5, body h6) { font-size: 14px; font-weight: 600; margin: 16px 0 4px; color: var(--octo-ink); text-transform: uppercase; letter-spacing: 0.06em; }
   :where(body p) { margin: 0 0 16px; }
-  :where(body a) { color: #1652f0; text-decoration: underline; text-underline-offset: 2px; }
+  :where(body a) { color: var(--octo-primary); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
   :where(body a:hover) { text-decoration-thickness: 2px; }
   :where(body ul, body ol) { margin: 0 0 18px; padding-left: 26px; }
   :where(body li) { margin: 8px 0; }
-  :where(body blockquote) { margin: 20px 0; padding: 2px 0 2px 20px; border-left: 3px solid #d9d8d3; color: #6b6a66; }
-  :where(body code) { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88em; background: #f0f0ee; padding: 2px 6px; border-radius: 6px; }
-  :where(body pre) { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14.5px; line-height: 1.6; background: #f7f7f5; border: 1px solid #e8e7e3; border-radius: 10px; padding: 16px 18px; margin: 20px 0; overflow-x: auto; }
+  :where(body blockquote) { margin: 20px 0; padding: 2px 0 2px 20px; border-left: 3px solid var(--octo-quote-rule); color: var(--octo-quote-text); }
+  :where(body code) { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88em; background: var(--octo-code-bg); padding: 2px 6px; border-radius: var(--octo-radius-md); overflow-wrap: anywhere; }
+  :where(body pre) { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14.5px; line-height: 1.6; background: var(--octo-pre-bg); border: 1px solid var(--octo-pre-border); border-radius: var(--octo-radius-lg); padding: 16px 18px; margin: 20px 0; overflow-x: auto; }
   :where(body pre code) { background: transparent; padding: 0; border-radius: 0; }
-  :where(body hr) { border: 0; border-top: 1px solid #e8e7e3; margin: 36px 0; }
-  /* Tables: Claude-style rounded cells with white gutters — no rules/borders. */
-  :where(body table) { border-collapse: separate; border-spacing: 3px; margin: 0 0 18px -14px; font-size: 16px; }
-  :where(body th, body td) { padding: 10px 14px; background: #f0f0ee; border-radius: 8px; border: 0; text-align: left; }
-  :where(body th) { font-weight: 600; color: #1a1a1a; }
-  :where(body figcaption) { font-size: 13px; color: #6b6a66; margin-top: 6px; text-align: center; }
+  :where(body hr) { border: 0; border-top: 1px solid var(--octo-pre-border); margin: 36px 0; }
+  /* Tables: minimal divider style — a hairline under each row, a slightly
+     stronger rule under the header, and a soft hover on body rows. No cell
+     backgrounds or per-cell borders, so it stays clean at any width. */
+  :where(body table) { border-collapse: collapse; width: 100%; margin: 0 0 20px; font-size: 15.5px; }
+  :where(body th, body td) { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--octo-border); vertical-align: top; }
+  :where(body thead th) { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--octo-muted); border-bottom: 1.5px solid var(--octo-quote-rule); }
+  :where(body tbody tr):last-child :where(td) { border-bottom: 0; }
+  :where(body tbody tr):hover { background: var(--octo-surface-subtle); }
+  :where(body figcaption) { font-size: 13px; color: var(--octo-quote-text); margin-top: 6px; text-align: center; }
   /* Task lists: circle checkboxes, Claude Code style. Works for raw
      <input type=checkbox> in lists and markdown-converted .task-list-item. */
   :where(body li:has(> input[type="checkbox"]), body li.task-list-item) { list-style: none; margin-left: -26px; }
@@ -144,15 +245,15 @@
     width: 17px; height: 17px;
     border: 1.5px solid #c9c8c3; border-radius: 50%;
     vertical-align: -3px; margin: 0 8px 0 0;
-    background: #fff; cursor: default;
+    background: var(--octo-surface); cursor: default;
   }
   :where(body input[type="checkbox"]:checked) {
-    background: #1a1a1a center / 11px no-repeat url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 8.5l3.5 3.5L13 5" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
-    border-color: #1a1a1a;
+    background: var(--octo-ink) center / 11px no-repeat url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 8.5l3.5 3.5L13 5" stroke="white" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+    border-color: var(--octo-ink);
   }
   /* Doc imagery only — exclude overlay UI so icons inside the bar / chips /
      buttons / cards keep their inline layout instead of stacking to 16px tall. */
-  :where(body img, body svg, body canvas, body video):not(.tdoc-bar *):not(.tdoc-margin-comment *):not(.tdoc-popup *):not(.tdoc-modal-bg *):not(.tdoc-chip *):not(.tdoc-fab *):not(#tdoc-comment-layer *):not(.tdoc-footer *) { display: block; margin: 16px auto; border-radius: 6px; }
+  :where(body img, body svg, body canvas, body video):not(.tdoc-bar *):not(.tdoc-margin-comment *):not(.tdoc-popup *):not(.tdoc-modal-bg *):not(.tdoc-chip *):not(.tdoc-fab *):not(#tdoc-comment-layer *):not(.tdoc-footer *) { display: block; margin: 16px auto; border-radius: var(--octo-radius-md); }
   /* Reading column for the doc container. :where() so a doc's own rule wins. */
   :where(body > .wrap, body > main, body > article, body > .content, body > .container) {
     max-width: 720px;
@@ -192,69 +293,70 @@
      No borders on individual buttons — uses hover background instead, so
      the bar reads as a clean strip rather than a row of chiclets.
      Light theme to match the doc body. */
-  .tdoc-bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #fff; color: #1a1a1a; display: flex; align-items: center; padding: 0 12px; font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; z-index: 999999; gap: 8px; border-bottom: 1px solid #e5e5e7; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
+  .tdoc-bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--octo-surface); color: var(--octo-ink); display: flex; align-items: center; padding: 0 12px; font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; z-index: 999999; gap: 8px; border-bottom: 1px solid var(--octo-border); box-shadow: var(--octo-shadow-sm); }
   .tdoc-bar-left { display: flex; align-items: center; gap: 6px; min-width: 0; flex-shrink: 1; }
   .tdoc-bar-center { flex: 1 1 auto; display: flex; justify-content: center; min-width: 0; padding: 0 8px; }
   .tdoc-bar-right { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
-  /* Workspace mark — circular dot like HackMD's logo. Clicks → /. */
-  .tdoc-bar-mark { display: inline-flex; align-items: center; justify-content: center; height: 28px; width: 28px; padding: 0 !important; border-radius: 7px; background: transparent; cursor: pointer; flex-shrink: 0; border: none; overflow: hidden; }
-  .tdoc-bar-mark img { width: 24px !important; height: 24px !important; max-width: 24px !important; border-radius: 6px; display: block; object-fit: cover; }
-  .tdoc-bar-mark:hover { background: #f0f1f4; }
+  /* Workspace mark — token-driven o·d monogram (inline SVG). Clicks → /. */
+  .tdoc-bar-mark { display: inline-flex; align-items: center; justify-content: center; height: 30px; width: 30px; padding: 3px !important; border-radius: var(--octo-radius-md); background: transparent; cursor: pointer; flex-shrink: 0; border: none; transition: background .12s; }
+  .tdoc-bar-mark svg { width: 24px; height: 24px; display: block; }
+  .tdoc-bar-mark:hover { background: var(--octo-surface-subtle); }
 
   /* Breadcrumb: workspace · slug · v3 — separated by " / ". */
-  .tdoc-bar .crumb { color: #555; font-weight: 500; padding: 4px 6px; border-radius: 6px; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .tdoc-bar .crumb-sep { color: #c0c0c4; user-select: none; padding: 0 1px; }
-  .tdoc-bar .doc-title { color: #1a1a1a; font-weight: 600; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tdoc-bar .crumb { color: var(--octo-bar-text); font-weight: 500; padding: 4px 6px; border-radius: var(--octo-radius-md); max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tdoc-bar .crumb-sep { color: var(--octo-faint); user-select: none; padding: 0 1px; }
+  .tdoc-bar .doc-title { color: var(--octo-ink); font-weight: 600; font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Default action button — icon and/or label, no border, hover bg only. */
-  .tdoc-bar button { background: transparent; border: none; color: #555; padding: 6px 8px; border-radius: 6px; font: inherit; cursor: pointer; transition: background .12s, color .12s; display: inline-flex; align-items: center; gap: 6px; }
-  .tdoc-bar button:hover { background: #f0f1f4; color: #1a1a1a; }
+  .tdoc-bar button { background: transparent; border: none; color: var(--octo-bar-text); padding: 6px 8px; border-radius: var(--octo-radius-md); font: inherit; cursor: pointer; transition: background .12s, color .12s; display: inline-flex; align-items: center; gap: 6px; }
+  .tdoc-bar button:hover { background: var(--octo-surface-subtle); color: var(--octo-ink); }
   .tdoc-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
   .tdoc-bar button svg { flex-shrink: 0; }
 
   /* Primary CTA (Share / Publish) — filled blue button at the right. */
-  .tdoc-bar button.primary { background: #1652f0; color: #fff; padding: 7px 14px; font-weight: 600; }
-  .tdoc-bar button.primary:hover { background: #1245d0; color: #fff; }
+  .tdoc-bar button.primary { background: var(--octo-primary); color: var(--octo-surface); padding: 7px 14px; font-weight: 600; box-shadow: 0 1px 2px rgba(22,82,240,0.2); }
+  .tdoc-bar button.primary:hover { background: var(--octo-primary-hover); color: var(--octo-surface); box-shadow: 0 2px 8px rgba(22,82,240,0.28); }
 
   /* Version picker chip — pill in the left breadcrumb. */
   .tdoc-version-wrap { position: relative; display: inline-block; flex-shrink: 0; }
-  .tdoc-version-toggle { background: #f0f1f4 !important; color: #1a1a1a !important; padding: 3px 10px !important; border-radius: 999px !important; font: 12px ui-monospace, "SF Mono", Menlo, monospace !important; }
-  .tdoc-version-toggle:hover { background: #e5e6ea !important; }
+  .tdoc-version-toggle { background: var(--octo-surface-subtle) !important; color: var(--octo-ink) !important; padding: 3px 10px !important; border-radius: var(--octo-radius-pill) !important; font: 12px ui-monospace, "SF Mono", Menlo, monospace !important; }
+  .tdoc-version-toggle:hover { background: var(--octo-surface-hover) !important; }
 
   /* Dropdown menus — light surface to match the bar. */
-  .tdoc-menu, .tdoc-secondary-menu, .tdoc-version-menu { display: none; position: absolute; background: #fff; border: 1px solid #e5e5e7; border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); z-index: 1000000; min-width: 160px; }
+  .tdoc-menu, .tdoc-secondary-menu, .tdoc-version-menu { display: none; position: absolute; background: var(--octo-surface); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-lg); padding: 4px; box-shadow: var(--octo-shadow-menu); z-index: 1000000; min-width: 160px; }
   .tdoc-version-menu { top: calc(100% + 6px); left: 0; max-height: 60vh; overflow-y: auto; }
   .tdoc-menu { top: calc(100% + 6px); right: 0; min-width: 180px; }
   .tdoc-secondary-menu { top: calc(100% + 6px); right: 0; }
   .tdoc-menu.open, .tdoc-secondary-menu.open, .tdoc-version-menu.open { display: block; }
-  .tdoc-menu button, .tdoc-secondary-menu button, .tdoc-version-menu button { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: 4px; color: #1a1a1a; font: 13px system-ui, sans-serif; }
+  .tdoc-menu button, .tdoc-secondary-menu button, .tdoc-version-menu button { display: block; width: 100%; text-align: left; padding: 7px 10px; border-radius: var(--octo-radius-sm); color: var(--octo-ink); font: 13px system-ui, sans-serif; }
   .tdoc-version-menu button { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-  .tdoc-menu button:hover, .tdoc-secondary-menu button:hover, .tdoc-version-menu button:hover { background: #f0f1f4; }
-  .tdoc-version-menu button.current { color: #1652f0; font-weight: 600; }
+  .tdoc-menu button:hover, .tdoc-secondary-menu button:hover, .tdoc-version-menu button:hover { background: var(--octo-surface-subtle); }
+  .tdoc-version-menu button.current { color: var(--octo-primary); font-weight: 600; }
 
   .tdoc-menu-wrap { position: relative; display: inline-block; }
   /* Overflow ⋯ button shows on narrow viewports. */
   .tdoc-bar .tdoc-secondary-toggle { display: none; padding: 6px 10px; }
 
   /* Identity chip — avatar + name (name hides on narrow). */
-  .tdoc-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; background: #f0f1f4; border-radius: 999px; cursor: pointer; color: #1a1a1a; font: inherit; border: none; }
-  .tdoc-chip:hover { background: #e5e6ea; }
+  .tdoc-chip { display: inline-flex; align-items: center; gap: 8px; padding: 3px 12px 3px 3px; background: var(--octo-surface-subtle); border-radius: var(--octo-radius-pill); cursor: pointer; color: var(--octo-ink); font: inherit; border: none; }
+  .tdoc-chip:hover { background: var(--octo-surface-hover); }
   .tdoc-chip img { width: 26px; height: 26px; border-radius: 50%; }
   .tdoc-chip .name { font-size: 13px; font-weight: 500; }
-  .tdoc-chip.signin { padding: 7px 14px; background: #1652f0; color: #fff; font-weight: 600; }
-  .tdoc-chip.signin:hover { background: #1245d0; }
+  .tdoc-chip.signin { padding: 7px 14px; background: var(--octo-primary); color: var(--octo-surface); font-weight: 600; }
+  .tdoc-chip.signin:hover { background: var(--octo-primary-hover); }
 
   /* Comment cards */
   #tdoc-comment-layer { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; z-index: 999996; }
-  .tdoc-margin-comment { position: absolute; width: 280px; background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); font: 13px system-ui, sans-serif; transition: box-shadow .15s, transform .15s; z-index: 999996; pointer-events: auto; }
-  .tdoc-margin-comment.active { box-shadow: 0 4px 16px rgba(22,82,240,0.18); border-color: #1652f0; }
+  .tdoc-margin-comment { position: absolute; width: 280px; background: var(--octo-surface); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-lg); padding: 12px; box-shadow: var(--octo-shadow-card); font: 13px system-ui, sans-serif; transition: box-shadow .15s, transform .15s, border-color .15s; z-index: 999996; pointer-events: auto; }
+  .tdoc-margin-comment:hover:not(.active) { box-shadow: var(--octo-shadow-menu); }
+  .tdoc-margin-comment.active { box-shadow: var(--octo-shadow-active); border-color: var(--octo-primary); }
   .tdoc-margin-comment.tdoc-unanchored { border-style: dashed; }
-  .tdoc-reanchor-btn { display: none; font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; cursor: pointer; background: none; border: none; padding: 0; text-align: left; }
+  .tdoc-reanchor-btn { display: none; font-size: 10px; color: var(--octo-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 6px; cursor: pointer; background: none; border: none; padding: 0; text-align: left; }
   .tdoc-margin-comment.tdoc-unanchored .tdoc-reanchor-btn { display: block; }
   /* Anchored cards also expose a "move anchor" action when they're active. */
   .tdoc-margin-comment.active .tdoc-reanchor-btn { display: block; }
-  .tdoc-reanchor-btn:hover { color: #1652f0; }
+  .tdoc-reanchor-btn:hover { color: var(--octo-primary); }
   /* Label swap: "unanchored" wording on unanchored cards, "move anchor" on
      active anchored cards. */
   .tdoc-reanchor-btn .tdoc-reanchor-unanchored,
@@ -267,20 +369,20 @@
      user to select. */
   /* Re-anchor banner: pinned below the bar with three actions. Visible
      only while body.tdoc-reanchoring is set. */
-  .tdoc-reanchor-banner { display: none; position: fixed; top: 56px; left: 50%; transform: translateX(-50%); background: #1652f0; color: #fff; padding: 6px 10px 6px 14px; border-radius: 999px; font: 12px system-ui; z-index: 999999; align-items: center; gap: 6px; box-shadow: 0 4px 16px rgba(22,82,240,0.35); }
+  .tdoc-reanchor-banner { display: none; position: fixed; top: 56px; left: 50%; transform: translateX(-50%); background: var(--octo-primary); color: var(--octo-surface); padding: 6px 10px 6px 14px; border-radius: var(--octo-radius-pill); font: 12px system-ui; z-index: 999999; align-items: center; gap: 6px; box-shadow: var(--octo-shadow-fab); }
   body.tdoc-reanchoring .tdoc-reanchor-banner { display: inline-flex; }
   .tdoc-reanchor-banner .label { padding: 0 4px; }
-  .tdoc-reanchor-banner button { background: rgba(255,255,255,0.15); border: none; color: #fff; padding: 4px 10px; border-radius: 999px; font: 12px system-ui; cursor: pointer; }
+  .tdoc-reanchor-banner button { background: rgba(255,255,255,0.15); border: none; color: var(--octo-surface); padding: 4px 10px; border-radius: var(--octo-radius-pill); font: 12px system-ui; cursor: pointer; }
   .tdoc-reanchor-banner button:hover { background: rgba(255,255,255,0.28); }
   .tdoc-reanchor-banner button.danger { background: rgba(255,255,255,0.15); }
-  .tdoc-reanchor-banner button.danger:hover { background: #c33; }
+  .tdoc-reanchor-banner button.danger:hover { background: var(--octo-danger); }
   /* Old-version strip — a thin, quiet bar just under the top bar shown when
      the viewer is on a non-latest version. Single-direction nudge: it only
      points forward to the latest version. Hidden by default; the bar-setup
      code reveals it (and adds the body padding) only when version < latest. */
-  .tdoc-oldver-strip { display: none; position: fixed; top: 44px; left: 0; right: 0; height: 28px; background: #fbf6e9; color: #6b5e3a; border-bottom: 1px solid #efe6cd; font: 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; align-items: center; justify-content: center; gap: 6px; z-index: 999998; padding: 0 12px; }
+  .tdoc-oldver-strip { display: none; position: fixed; top: 49px; left: 0; right: 0; height: 28px; background: #fbf6e9; color: #6b5e3a; border-bottom: 1px solid #efe6cd; font: 12px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; align-items: center; justify-content: center; gap: 6px; z-index: 999998; padding: 0 12px; }
   body.tdoc-has-oldver-strip .tdoc-oldver-strip { display: flex; }
-  body.tdoc-has-oldver-strip { padding-top: 72px !important; }
+  body.tdoc-has-oldver-strip { padding-top: 77px !important; }
   .tdoc-oldver-strip a { color: #8a6d1f; font-weight: 600; text-decoration: none; border-bottom: 1px solid currentColor; }
   .tdoc-oldver-strip a:hover { color: #6b5413; }
   /* Ghost marker — a faint horizontal line at the unanchored comment's
@@ -290,38 +392,38 @@
   body.tdoc-narrow .tdoc-ghost-marker { display: none; }
   .tdoc-margin-comment .author { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
   .tdoc-margin-comment .author img { width: 24px; height: 24px; border-radius: 50%; }
-  .tdoc-margin-comment .author .login { font-weight: 600; color: #111; font-size: 13px; }
-  .tdoc-margin-comment .author .anon { color: #888; font-style: italic; }
+  .tdoc-margin-comment .author .login { font-weight: 600; color: var(--octo-ink-strong); font-size: 13px; }
+  .tdoc-margin-comment .author .anon { color: var(--octo-muted); font-style: italic; }
   /* Agent identity — a simple "⚡ tdoc-agent" badge in place of an avatar.
      The status chip on agent replies (applied / partial / question) lets
      the user tell at a glance whether their comment was addressed. */
-  .tdoc-agent-badge { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: #111; color: #fff; align-items: center; justify-content: center; font-size: 13px; }
-  .tdoc-agent-reply { background: #fafafb; border-left: 3px solid #111; padding-left: 8px; }
-  .tdoc-agent-status { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; margin: 0 0 6px; font-weight: 600; }
-  .tdoc-agent-status-applied { background: #e8f5ed; color: #1a7340; }
-  .tdoc-agent-status-partial { background: #fff4dc; color: #8a5a00; }
-  .tdoc-agent-status-question { background: #ffe7e7; color: #a52323; }
-  .tdoc-margin-comment .text { color: #111; line-height: 1.45; word-wrap: break-word; }
-  .tdoc-margin-comment .meta { font-size: 11px; color: #888; margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .tdoc-agent-badge { display: inline-flex; width: 24px; height: 24px; border-radius: 50%; background: var(--octo-ink-strong); color: var(--octo-surface); align-items: center; justify-content: center; font-size: 13px; }
+  .tdoc-agent-reply { background: var(--octo-surface-subtle); border-left: 3px solid var(--octo-ink-strong); padding-left: 8px; }
+  .tdoc-agent-status { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: var(--octo-radius-pill); margin: 0 0 6px; font-weight: 600; }
+  .tdoc-agent-status-applied { background: var(--octo-ok-bg); color: var(--octo-ok-fg); }
+  .tdoc-agent-status-partial { background: var(--octo-warn-bg); color: var(--octo-warn-fg); }
+  .tdoc-agent-status-question { background: var(--octo-ask-bg); color: var(--octo-ask-fg); }
+  .tdoc-margin-comment .text { color: var(--octo-ink-strong); line-height: 1.45; word-wrap: break-word; }
+  .tdoc-margin-comment .meta { font-size: 11px; color: var(--octo-muted-dark); margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
   .tdoc-margin-comment .meta > span:first-child { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tdoc-margin-comment .del { cursor: pointer; color: #c33; }
+  .tdoc-margin-comment .del { cursor: pointer; color: var(--octo-danger); }
   .tdoc-margin-comment .del:hover { text-decoration: underline; }
-  .tdoc-margin-comment .actions { display: inline-flex; gap: 8px; align-items: center; flex-shrink: 0; }
-  .tdoc-margin-comment .copy-md { cursor: pointer; color: #888; display: inline-flex; align-items: center; }
-  .tdoc-margin-comment .copy-md:hover { color: #1652f0; }
+  .tdoc-margin-comment .actions { display: inline-flex; gap: 2px; align-items: center; flex-shrink: 0; }
+  .tdoc-margin-comment .copy-md { cursor: pointer; color: var(--octo-muted); display: inline-flex; align-items: center; padding: 3px; border-radius: var(--octo-radius-sm); transition: background .12s, color .12s; }
+  .tdoc-margin-comment .copy-md:hover { color: var(--octo-primary); background: var(--octo-surface-subtle); }
   .tdoc-margin-comment .copy-md svg { width: 14px; height: 14px; display: block; }
-  .tdoc-margin-comment .tdoc-reply-toggle { cursor: pointer; color: #1652f0; }
-  .tdoc-margin-comment .tdoc-reply-toggle:hover { text-decoration: underline; }
+  .tdoc-margin-comment .tdoc-reply-toggle { cursor: pointer; color: var(--octo-primary); font-weight: 500; padding: 2px 7px; border-radius: var(--octo-radius-sm); transition: background .12s; }
+  .tdoc-margin-comment .tdoc-reply-toggle:hover { background: var(--octo-surface-subtle); }
 
   /* Reactions + emoji picker */
   .tdoc-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
-  .tdoc-react-chip { position: relative; display: inline-flex; align-items: center; gap: 4px; font: 12px system-ui; background: #f5f6f8; border: 1px solid #e5e5e5; border-radius: 999px; padding: 2px 8px; cursor: pointer; color: #333; transition: background .12s, border-color .12s; }
-  .tdoc-react-chip:hover { background: #eef0f3; }
-  .tdoc-react-chip.mine { background: #e8eeff; border-color: #1652f0; color: #1652f0; }
+  .tdoc-react-chip { position: relative; display: inline-flex; align-items: center; gap: 4px; font: 12px system-ui; background: var(--octo-surface-subtle); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-pill); padding: 2px 8px; cursor: pointer; color: var(--octo-ink-soft); transition: background .12s, border-color .12s; }
+  .tdoc-react-chip:hover { background: var(--octo-surface-hover); }
+  .tdoc-react-chip.mine { background: var(--octo-mine-bg); border-color: var(--octo-primary); color: var(--octo-primary); }
   /* Agent reactions get a tinted background so users can scan a long doc
      and spot which comments the agent has already responded to. */
-  .tdoc-react-chip.agent { background: #f3eaff; border-color: #c3a8f0; color: #5a2da8; }
-  .tdoc-react-chip.agent.mine { background: #f3eaff; border-color: #c3a8f0; color: #5a2da8; }
+  .tdoc-react-chip.agent { background: var(--octo-agent-bg); border-color: var(--octo-agent-border); color: var(--octo-agent-fg); }
+  .tdoc-react-chip.agent.mine { background: var(--octo-agent-bg); border-color: var(--octo-agent-border); color: var(--octo-agent-fg); }
   /* Custom reactors tooltip — shows the GitHub logins (or agent labels) of
      everyone who used this emoji. Native title= has ~1s delay; this is
      instant and styled to match the doc. */
@@ -331,133 +433,151 @@
     bottom: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%);
-    background: #111;
-    color: #fff;
+    background: var(--octo-ink-strong);
+    color: var(--octo-surface);
     padding: 4px 8px;
-    border-radius: 6px;
+    border-radius: var(--octo-radius-md);
     font: 11px/1.3 system-ui;
-    white-space: pre;
+    white-space: pre-wrap;
     max-width: 240px;
     pointer-events: none;
     z-index: 999999;
   }
-  .tdoc-react-add { background: transparent; border: none; color: #aaa; padding: 0; cursor: pointer; line-height: 1; transition: color .12s, opacity .12s; display: inline-flex; align-items: center; }
+  .tdoc-react-add { background: transparent; border: none; color: var(--octo-faint); padding: 3px; border-radius: var(--octo-radius-sm); cursor: pointer; line-height: 1; transition: color .12s, opacity .12s, background .12s; display: inline-flex; align-items: center; }
   .tdoc-react-add svg { width: 16px; height: 16px; display: block; }
-  .tdoc-reactions .tdoc-react-add { opacity: 0; padding: 2px 4px; }
+  .tdoc-reactions .tdoc-react-add { opacity: 0; }
   .tdoc-margin-comment:hover .tdoc-reactions .tdoc-react-add, .tdoc-reply:hover .tdoc-reactions .tdoc-react-add, .tdoc-reactions:has(.tdoc-react-chip) .tdoc-react-add { opacity: 1; }
   .tdoc-react-add.inline svg { width: 14px; height: 14px; }
   .tdoc-react-add.inline { opacity: 0.55; vertical-align: middle; }
-  .tdoc-react-add:hover { color: #1652f0; opacity: 1; }
-  .tdoc-emoji-picker { position: absolute; background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 6px; display: grid; grid-template-columns: repeat(6, 32px); gap: 2px; box-shadow: 0 4px 16px rgba(0,0,0,0.12); z-index: 1000001; }
-  .tdoc-emoji-picker button { background: transparent; border: none; padding: 0; cursor: pointer; border-radius: 4px; width: 32px; height: 32px; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
-  .tdoc-emoji-picker button:hover { background: #f5f6f8; }
-  .tdoc-emoji-picker button.tdoc-emoji-text { grid-column: span 6; height: auto; padding: 6px 8px; font-size: 12px; font-weight: 600; color: #1652f0; }
-  .tdoc-emoji-picker button.tdoc-emoji-text:hover { background: #e8eeff; }
+  .tdoc-react-add:hover { color: var(--octo-primary); opacity: 1; background: var(--octo-surface-subtle); }
+  .tdoc-emoji-picker { position: absolute; background: var(--octo-surface); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-lg); padding: 6px; display: grid; grid-template-columns: repeat(6, 32px); gap: 2px; box-shadow: var(--octo-shadow-menu); z-index: 1000001; }
+  .tdoc-emoji-picker button { background: transparent; border: none; padding: 0; cursor: pointer; border-radius: var(--octo-radius-sm); width: 32px; height: 32px; font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+  .tdoc-emoji-picker button:hover { background: var(--octo-surface-subtle); }
+  .tdoc-emoji-picker button.tdoc-emoji-text { grid-column: span 6; height: auto; padding: 6px 8px; font-size: 12px; font-weight: 600; color: var(--octo-primary); }
+  .tdoc-emoji-picker button.tdoc-emoji-text:hover { background: var(--octo-mine-bg); }
 
   /* Replies + reply form */
-  .tdoc-replies-toggle { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #eee; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: #1652f0; user-select: none; }
+  .tdoc-replies-toggle { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--octo-hairline); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--octo-primary); user-select: none; }
   .tdoc-replies-toggle:hover { text-decoration: underline; }
   .tdoc-replies-toggle .chev { transition: transform .15s; }
   .tdoc-replies-toggle.open .chev { transform: rotate(90deg); }
   .tdoc-replies { display: none; flex-direction: column; gap: 10px; margin-top: 10px; }
   .tdoc-replies.open { display: flex; }
-  .tdoc-reply { padding-left: 12px; border-left: 2px solid #e5e5e5; }
+  .tdoc-reply { padding-left: 12px; border-left: 2px solid var(--octo-border); }
   .tdoc-reply .author { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
   .tdoc-reply .author img { width: 18px; height: 18px; border-radius: 50%; }
-  .tdoc-reply .author .login { font-weight: 600; font-size: 12px; color: #111; }
-  .tdoc-reply .author .anon { color: #888; font-style: italic; font-size: 12px; }
-  .tdoc-reply .text { color: #222; font-size: 13px; line-height: 1.4; word-wrap: break-word; }
-  .tdoc-reply .meta { font-size: 11px; color: #888; margin-top: 4px; display: flex; justify-content: space-between; }
-  .tdoc-reply .del { cursor: pointer; color: #c33; }
+  .tdoc-reply .author .login { font-weight: 600; font-size: 12px; color: var(--octo-ink-strong); }
+  .tdoc-reply .author .anon { color: var(--octo-muted); font-style: italic; font-size: 12px; }
+  .tdoc-reply .text { color: var(--octo-ink); font-size: 13px; line-height: 1.4; word-wrap: break-word; }
+  .tdoc-reply .meta { font-size: 11px; color: var(--octo-muted-dark); margin-top: 4px; display: flex; justify-content: space-between; }
+  .tdoc-reply .del { cursor: pointer; color: var(--octo-danger); }
   .tdoc-reply .del:hover { text-decoration: underline; }
-  .tdoc-reply-form { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #eee; }
+  .tdoc-reply-form { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--octo-hairline); }
   .tdoc-reply-form.open { display: block; }
-  .tdoc-reply-form textarea { width: 100%; min-height: 48px; box-sizing: border-box; padding: 6px 8px; font: 13px system-ui; border: 1px solid #ccc; border-radius: 6px; resize: vertical; outline: none; }
-  .tdoc-reply-form textarea:focus { border-color: #1652f0; }
-  .tdoc-reply-form-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
-  .tdoc-reply-form-foot .hint { color: #888; font-size: 11px; }
-  .tdoc-reply-form-foot .tdoc-reply-submit { background: #1652f0; color: #fff; border: none; border-radius: 6px; padding: 5px 12px; font: 12px system-ui; cursor: pointer; }
-  .tdoc-reply-form-foot .tdoc-reply-submit:hover { background: #1245d0; }
+  .tdoc-reply-form textarea { width: 100%; min-height: 48px; box-sizing: border-box; padding: 8px 10px; font: 13px system-ui; line-height: 1.45; color: var(--octo-ink); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-md); resize: vertical; outline: none; transition: border-color .12s, box-shadow .12s; }
+  .tdoc-reply-form textarea::placeholder { color: var(--octo-muted); }
+  .tdoc-reply-form textarea:focus { border-color: var(--octo-primary); box-shadow: var(--octo-focus-ring); }
+  .tdoc-reply-form-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .tdoc-reply-form-foot .hint { color: var(--octo-muted-dark); font-size: 11px; }
+  .tdoc-reply-form-foot .tdoc-reply-submit { background: var(--octo-primary); color: var(--octo-surface); border: none; border-radius: var(--octo-radius-md); padding: 6px 14px; font: 12px system-ui; font-weight: 600; cursor: pointer; box-shadow: 0 1px 2px rgba(22,82,240,0.2); transition: background .12s, box-shadow .12s; }
+  .tdoc-reply-form-foot .tdoc-reply-submit:hover { background: var(--octo-primary-hover); box-shadow: 0 2px 8px rgba(22,82,240,0.28); }
 
   /* Anchor highlights (Custom Highlight API + fallback span) */
   ::highlight(tdoc-pending) { background-color: #fff3a8; }
-  ::highlight(tdoc-anchor) { background-color: #fff7d0; }
+  ::highlight(tdoc-anchor) { background-color: var(--octo-highlight); }
   /* Active = clicked. Visibly different from resting: vivid yellow + thick
      gold underline. (The CSS Highlight API only supports background-color,
      color, and text-decoration — so we stack those.) */
   ::highlight(tdoc-anchor-active) {
-    background-color: #ffd84d;
+    background-color: var(--octo-highlight-active);
     text-decoration: underline solid #b8860b;
     text-decoration-thickness: 3px;
     text-underline-offset: 2px;
   }
-  .tdoc-anchor-mark { background: #fff7d0; cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+  .tdoc-anchor-mark { background: var(--octo-highlight); cursor: pointer; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
   .tdoc-anchor-mark:hover { background: #fdedb0; }
-  .tdoc-anchor-mark.active { background: #ffd84d; box-shadow: 0 -3px 0 -1px #b8860b inset; }
+  .tdoc-anchor-mark.active { background: var(--octo-highlight-active); box-shadow: 0 -3px 0 -1px #b8860b inset; }
 
   /* Element outlines + hover affordance */
-  .tdoc-element-outline { position: absolute; pointer-events: none; border: 1.5px solid rgba(22,82,240,0.35); border-radius: 4px; box-sizing: border-box; z-index: 999995; transition: border-color .15s, box-shadow .15s, border-width .15s; }
+  .tdoc-element-outline { position: absolute; pointer-events: none; border: 1.5px solid rgba(22,82,240,0.35); border-radius: var(--octo-radius-sm); box-sizing: border-box; z-index: 999995; transition: border-color .15s, box-shadow .15s, border-width .15s; }
   .tdoc-element-outline.pending { border-color: #f0d000; border-width: 2px; background: transparent; }
-  .tdoc-element-outline.active { border-color: #1652f0; border-width: 2px; box-shadow: 0 0 0 4px rgba(22,82,240,0.18); }
-  .tdoc-hover-outline { position: absolute; pointer-events: none; z-index: 999995; border: 2px dashed #1652f0; border-radius: 4px; background: rgba(22,82,240,0.06); box-sizing: border-box; transition: opacity .12s; }
+  .tdoc-element-outline.active { border-color: var(--octo-primary); border-width: 2px; box-shadow: 0 0 0 4px rgba(22,82,240,0.18); }
+  .tdoc-hover-outline { position: absolute; pointer-events: none; z-index: 999995; border: 2px dashed var(--octo-primary); border-radius: var(--octo-radius-sm); background: rgba(22,82,240,0.06); box-sizing: border-box; transition: opacity .12s; }
   /* Clickable pill that appears NEXT TO commentable artifacts (img/canvas/svg/video/pre).
      Positioned just outside the artifact's right edge so it can't obscure
      content. Uses !important on the visible colors to defend against doc-side
      button:hover rules that would otherwise repaint our background. */
+  /* Hover "Comment" pill. It floats over arbitrary user HTML, so every box
+     property is reset with !important — otherwise the document's own rules (e.g.
+     an "svg { margin: 16px; display: block }" doc template) leak in and inflate
+     it. Compact, icon-forward, with a soft tinted shadow. */
   .tdoc-comment-pill {
     position: absolute !important; z-index: 999998 !important;
-    background: #1652f0 !important; color: #fff !important;
-    font: 600 11px system-ui !important;
-    padding: 4px 10px !important;
-    border: none !important; border-radius: 999px !important;
+    box-sizing: border-box !important; height: auto !important; width: auto !important;
+    min-width: 0 !important; min-height: 0 !important; max-width: none !important;
+    margin: 0 !important;
+    background: var(--octo-primary) !important; color: #fff !important;
+    font: 600 12px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+    letter-spacing: 0.01em !important;
+    padding: 6px 11px 6px 9px !important;
+    border: none !important; border-radius: var(--octo-radius-pill) !important;
     cursor: pointer !important;
-    box-shadow: 0 2px 8px rgba(22,82,240,0.38) !important;
-    display: inline-flex !important; align-items: center !important; gap: 4px !important;
-    transition: transform .12s, background-color .12s, box-shadow .12s, opacity .12s !important;
-    line-height: 1 !important;
-    text-decoration: none !important;
-    opacity: 0.92 !important; visibility: visible !important;
+    box-shadow: 0 2px 8px rgba(22,82,240,0.32), 0 1px 2px rgba(0,0,0,0.12) !important;
+    display: inline-flex !important; align-items: center !important; gap: 5px !important;
+    transition: transform .12s ease, background-color .12s, box-shadow .12s, opacity .12s !important;
+    text-decoration: none !important; white-space: nowrap !important;
+    opacity: 1 !important; visibility: visible !important;
+    -webkit-appearance: none !important; appearance: none !important;
   }
   .tdoc-comment-pill:hover {
-    background: #1245d0 !important; color: #fff !important;
-    opacity: 1 !important;
+    background: var(--octo-primary-hover) !important; color: #fff !important;
     transform: translateY(-1px) !important;
-    box-shadow: 0 4px 12px rgba(22,82,240,0.50) !important;
+    box-shadow: 0 4px 14px rgba(22,82,240,0.42), 0 1px 2px rgba(0,0,0,0.14) !important;
   }
-  .tdoc-comment-pill:active { background: #0f3bb0 !important; transform: translateY(0) !important; }
-  .tdoc-comment-pill svg { width: 12px !important; height: 12px !important; flex-shrink: 0 !important; stroke: #fff !important; }
-  .tdoc-drag-marquee { position: absolute; pointer-events: none; z-index: 999997; border: 1.5px solid #1652f0; background: rgba(22,82,240,0.1); box-sizing: border-box; }
+  .tdoc-comment-pill:active { transform: translateY(0) scale(0.97) !important; }
+  .tdoc-comment-pill svg {
+    width: 13px !important; height: 13px !important; flex: 0 0 13px !important;
+    margin: 0 !important; padding: 0 !important; display: block !important;
+    vertical-align: middle !important; stroke: #fff !important; fill: none !important;
+    max-width: none !important; box-shadow: none !important;
+  }
+  .tdoc-drag-marquee { position: absolute; pointer-events: none; z-index: 999997; border: 1.5px solid var(--octo-primary); background: rgba(22,82,240,0.1); box-sizing: border-box; }
 
-  /* Popup (new-comment) */
-  .tdoc-popup { position: absolute; background: #0a0a0a; color: #fff; border-radius: 10px; padding: 14px; width: 320px; box-shadow: 0 12px 40px rgba(0,0,0,0.4); z-index: 999998; font: 13px system-ui, sans-serif; }
-  .tdoc-popup .head { display: flex; justify-content: space-between; margin-bottom: 8px; }
-  .tdoc-popup .head .h { color: #aaa; }
-  .tdoc-popup .head .x { cursor: pointer; color: #888; }
-  .tdoc-popup textarea { width: 100%; min-height: 64px; background: transparent; color: #fff; border: 1px solid #1652f0; border-radius: 6px; padding: 8px; font: inherit; resize: vertical; box-sizing: border-box; outline: none; }
-  .tdoc-popup .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
-  .tdoc-popup .hint { color: #888; font-size: 11px; }
-  .tdoc-popup .submit { background: #1652f0; border: none; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; font: inherit; font-weight: 500; }
-  .tdoc-popup .submit:hover { background: #1245d0; }
-  .tdoc-popup .signin-needed { color: #f5a623; font-size: 12px; padding: 8px 0; }
+  /* Popup (new-comment) — light surface, consistent with the toolbar/cards. */
+  .tdoc-popup { position: absolute; background: var(--octo-surface); color: var(--octo-ink); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-lg); padding: 14px; width: 320px; box-shadow: var(--octo-shadow-menu); z-index: 999998; font: 13px system-ui, sans-serif; }
+  .tdoc-popup .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+  /* Anchor preview as a subtle chip so it reads as "commenting on this". */
+  .tdoc-popup .head .h { flex: 1 1 auto; min-width: 0; background: var(--octo-surface-subtle); color: var(--octo-ink-soft); font-size: 12px; padding: 3px 8px; border-radius: var(--octo-radius-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tdoc-popup .head .x { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; cursor: pointer; color: var(--octo-muted); border-radius: var(--octo-radius-sm); font-size: 16px; line-height: 1; transition: background .12s, color .12s; }
+  .tdoc-popup .head .x:hover { background: var(--octo-surface-subtle); color: var(--octo-ink); }
+  .tdoc-popup textarea { width: 100%; min-height: 72px; background: var(--octo-surface); color: var(--octo-ink); border: 1px solid var(--octo-border); border-radius: var(--octo-radius-md); padding: 9px 10px; font: inherit; line-height: 1.45; resize: vertical; box-sizing: border-box; outline: none; transition: border-color .12s, box-shadow .12s; }
+  .tdoc-popup textarea::placeholder { color: var(--octo-muted); }
+  .tdoc-popup textarea:focus { border-color: var(--octo-primary); box-shadow: var(--octo-focus-ring); }
+  .tdoc-popup .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .tdoc-popup .hint { color: var(--octo-muted-dark); font-size: 11px; }
+  .tdoc-popup .submit { background: var(--octo-primary); border: none; color: var(--octo-surface); padding: 7px 16px; border-radius: var(--octo-radius-md); cursor: pointer; font: inherit; font-weight: 600; box-shadow: 0 1px 2px rgba(22,82,240,0.2); transition: background .12s, box-shadow .12s; }
+  .tdoc-popup .submit:hover { background: var(--octo-primary-hover); box-shadow: 0 2px 8px rgba(22,82,240,0.28); }
+  .tdoc-popup .submit:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+  .tdoc-popup .signin-needed { color: var(--octo-warn-fg); font-size: 12px; padding: 8px 0; }
 
   /* Modal (sign-in) */
   .tdoc-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1000000; display: flex; align-items: center; justify-content: center; font: 14px system-ui, sans-serif; }
-  .tdoc-modal { background: #fff; color: #111; border-radius: 12px; padding: 28px; width: 460px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .tdoc-modal { background: var(--octo-surface); color: var(--octo-ink-strong); border-radius: var(--octo-radius-xl); padding: 28px; width: 460px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
   .tdoc-modal h3 { margin: 0 0 8px; font-size: 20px; }
-  .tdoc-modal p { margin: 0 0 14px; color: #444; line-height: 1.5; }
-  .tdoc-modal .code { background: #0a0a0a; color: #fff; padding: 18px; border-radius: 8px; font: 24px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.15em; text-align: center; margin: 0 0 14px; user-select: all; cursor: copy; }
-  .tdoc-modal .step { display: flex; gap: 10px; margin-bottom: 8px; color: #444; }
-  .tdoc-modal .step .n { width: 22px; height: 22px; border-radius: 50%; background: #1652f0; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+  .tdoc-modal p { margin: 0 0 14px; color: var(--octo-ink-soft); line-height: 1.5; }
+  .tdoc-modal .code { background: var(--octo-ink-panel); color: var(--octo-surface); padding: 18px; border-radius: var(--octo-radius-lg); font: 24px ui-monospace, "SF Mono", Menlo, monospace; letter-spacing: 0.15em; text-align: center; margin: 0 0 14px; user-select: all; cursor: copy; }
+  .tdoc-modal .step { display: flex; gap: 10px; margin-bottom: 8px; color: var(--octo-ink-soft); }
+  .tdoc-modal .step .n { width: 22px; height: 22px; border-radius: 50%; background: var(--octo-primary); color: var(--octo-surface); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
   .tdoc-modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-  .tdoc-modal button { padding: 8px 16px; border-radius: 6px; font: inherit; cursor: pointer; border: 1px solid #ccc; background: #fff; }
-  .tdoc-modal button.primary { background: #1652f0; border-color: #1652f0; color: #fff; }
-  .tdoc-modal button.primary:hover { background: #1245d0; }
-  .tdoc-modal .status { color: #888; font-size: 13px; }
+  .tdoc-modal button { padding: 8px 16px; border-radius: var(--octo-radius-md); font: inherit; cursor: pointer; border: 1px solid #ccc; background: var(--octo-surface); }
+  .tdoc-modal button.primary { background: var(--octo-primary); border-color: var(--octo-primary); color: var(--octo-surface); }
+  .tdoc-modal button.primary:hover { background: var(--octo-primary-hover); }
+  .tdoc-modal .status { color: var(--octo-muted); font-size: 13px; }
   /* Modal helper classes used by Publish/Share so dark-mode can override. */
-  .tdoc-modal .muted { color: #666; font-size: 13px; }
-  .tdoc-modal .divider { border-top: 1px solid #eee; padding-top: 12px; margin-top: 12px; }
-  .tdoc-modal .danger { color: #c33; font-size: 13px; }
-  .tdoc-modal code { background: #f5f6f8; padding: 1px 5px; border-radius: 3px; }
+  .tdoc-modal .muted { color: var(--octo-muted-dark); font-size: 13px; }
+  .tdoc-modal .divider { border-top: 1px solid var(--octo-hairline); padding-top: 12px; margin-top: 12px; }
+  .tdoc-modal .danger { color: var(--octo-danger); font-size: 13px; }
+  .tdoc-modal code { background: var(--octo-surface-subtle); padding: 1px 5px; border-radius: 3px; }
 
   /* Bar collapse breakpoints — tied to viewport width, not layout class.
      The bar progressively hides elements as the viewport tightens, so it
@@ -485,13 +605,16 @@
 
   /* Narrow mode (drawer + FAB) — still driven by the layout evaluator so
      it can also kick in when the comment column would crowd the article. */
-  body.tdoc-narrow #tdoc-comment-layer { position: fixed; top: auto; left: 0; right: 0; bottom: 0; max-height: 70vh; width: 100%; pointer-events: auto; background: #fff; border-top: 1px solid #e5e5e5; box-shadow: 0 -4px 24px rgba(0,0,0,0.08); transform: translateY(100%); transition: transform .2s; overflow-y: auto; padding: 12px 12px 24px; box-sizing: border-box; z-index: 999998; }
+  body.tdoc-narrow #tdoc-comment-layer { position: fixed; top: auto; left: 0; right: 0; bottom: 0; max-height: 70vh; width: 100%; pointer-events: auto; background: var(--octo-surface); border-top: 1px solid var(--octo-border); box-shadow: 0 -4px 24px rgba(0,0,0,0.08); transform: translateY(100%); transition: transform .2s; overflow-y: auto; padding: 12px 12px 24px; box-sizing: border-box; z-index: 999998; }
   body.tdoc-narrow #tdoc-comment-layer.open { transform: translateY(0); }
   body.tdoc-narrow #tdoc-comment-layer .tdoc-drawer-handle { display: block; width: 36px; height: 4px; background: #ccc; border-radius: 2px; margin: 0 auto 12px; cursor: grab; touch-action: none; user-select: none; }
   body.tdoc-narrow #tdoc-comment-layer .tdoc-drawer-handle:active { cursor: grabbing; }
   body.tdoc-narrow .tdoc-margin-comment { position: static !important; width: auto !important; left: auto !important; top: auto !important; margin-bottom: 10px; transform: none !important; }
-  body.tdoc-narrow .tdoc-fab { position: fixed; bottom: 16px; right: 16px; z-index: 999997; background: #1652f0; color: #fff; border: none; border-radius: 999px; padding: 10px 16px; font: 13px system-ui; font-weight: 600; box-shadow: 0 4px 16px rgba(22,82,240,0.35); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  body.tdoc-narrow .tdoc-fab { position: fixed; bottom: 16px; right: 16px; z-index: 999997; background: var(--octo-primary); color: var(--octo-surface); border: none; border-radius: var(--octo-radius-pill); padding: 10px 16px; font: 13px system-ui; font-weight: 600; box-shadow: var(--octo-shadow-fab); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: transform .12s, box-shadow .12s; }
   body.tdoc-narrow .tdoc-fab:active { transform: scale(0.96); }
+  /* Count badge inside the FAB — a contrasting pill so the number reads as a
+     distinct chip rather than plain text next to the icon. */
+  #tdoc-fab-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--octo-radius-pill); background: var(--octo-surface); color: var(--octo-primary); font-size: 11px; font-weight: 700; line-height: 1; }
   body.tdoc-narrow .tdoc-popup { width: calc(100vw - 24px); max-width: 320px; left: 12px !important; }
   body.tdoc-narrow .tdoc-modal { width: calc(100vw - 32px); padding: 20px; }
   body.tdoc-narrow .tdoc-modal .code { font-size: 20px; }
@@ -508,10 +631,10 @@
   }
 
   /* Footer */
-  .tdoc-footer { margin-top: 80px; padding: 20px 16px 28px; font: 12px system-ui, sans-serif; color: #888; text-align: center; border-top: 1px solid #eee; box-sizing: border-box; max-width: 100%; }
+  .tdoc-footer { margin-top: 80px; padding: 20px 16px 28px; font: 12px system-ui, sans-serif; color: var(--octo-muted-dark); text-align: center; border-top: 1px solid var(--octo-hairline); box-sizing: border-box; max-width: 100%; }
   .tdoc-footer .tdoc-footer-row { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; row-gap: 4px; }
-  .tdoc-footer a { color: #666; text-decoration: none; }
-  .tdoc-footer a:hover { color: #1652f0; text-decoration: underline; }
+  .tdoc-footer a { color: var(--octo-muted-dark); text-decoration: none; }
+  .tdoc-footer a:hover { color: var(--octo-primary); text-decoration: underline; }
   .tdoc-footer .sep { color: #ccc; }
   @media (max-width: 700px) { .tdoc-footer .tdoc-footer-row { flex-direction: column; gap: 4px; } .tdoc-footer .sep { display: none; } }
 
@@ -574,7 +697,7 @@
 
   // Left group: workspace mark + slug crumb + version picker.
   const leftHtml = `
-    <button class="tdoc-bar-mark" id="tdoc-bar-mark" title="octo-doc on GitHub" aria-label="octo-doc on GitHub"><img src="data:image/png;base64,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" alt="octo-doc" width="24" height="24"></button>
+    <button class="tdoc-bar-mark" id="tdoc-bar-mark" title="octo-doc on GitHub" aria-label="octo-doc on GitHub"><svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" fill="var(--octo-primary)"/><text x="12" y="16.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="700" letter-spacing="-0.5" fill="#fff">o<tspan fill="#fff" fill-opacity="0.7">·</tspan>d</text></svg></button>
     <span class="crumb crumb-slug" title="${escapeHtml(slugCrumbLabel)}">${escapeHtml(slugCrumbLabel)}</span>
     <span class="crumb-sep crumb-sep-slug" aria-hidden="true">/</span>
     <div class="tdoc-version-wrap">
@@ -586,8 +709,10 @@
       ` : ''}
     </div>`;
 
-  // Center: doc title (pulled from <title>). Hidden on very narrow.
-  const centerHtml = `<span class="doc-title" id="tdoc-title">tdoc</span>`;
+  // Center: doc title, pulled from the document's <title> at setup time (see
+  // below). Starts EMPTY — the slug already shows in the left breadcrumb, so
+  // echoing it here would just duplicate. A titled doc fills this in.
+  const centerHtml = `<span class="doc-title" id="tdoc-title"></span>`;
 
   // Right: copy menu + primary CTA (Share or Publish) + ⋯ overflow + identity.
   const copyMenuHtml = `
@@ -887,8 +1012,6 @@
   footer.innerHTML =
     '<div class="tdoc-footer-row">' +
       '<span>Powered by <a href="https://github.com/lml2468/octo-doc" target="_blank" rel="noopener">octo-doc</a></span>' +
-      '<span class="sep">·</span>' +
-      '<span>inspired by tdoc &amp; bdocs</span>' +
     '</div>';
   document.body.appendChild(footer);
 
@@ -907,7 +1030,7 @@
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode(n) {
         if (!n.parentElement) return NodeFilter.FILTER_REJECT;
-        if (n.parentElement.closest(UI_CONTAINERS)) return NodeFilter.FILTER_REJECT;
+        if (n.parentElement.closest(UI_TEXT)) return NodeFilter.FILTER_REJECT;
         // Skip script/style/template etc — their .textContent is irrelevant.
         const tag = n.parentElement.tagName;
         if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEMPLATE' || tag === 'NOSCRIPT') return NodeFilter.FILTER_REJECT;
@@ -2452,11 +2575,13 @@
     commentPill.type = 'button';
     commentPill.setAttribute('aria-label', 'Comment on this');
     commentPill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Comment`;
-    // Top-right corner of the SECTION, so it visually belongs to the whole
-    // artifact regardless of where inside it the cursor is.
-    const pillW = 110;
-    commentPill.style.top = (window.scrollY + r.top + 8) + 'px';
-    commentPill.style.left = (window.scrollX + Math.max(r.left + 8, r.right - pillW - 8)) + 'px';
+    // Float on the element's top-right EDGE — vertically centered on the top
+    // border so the pill reads as attached to the whole element without covering
+    // its content. Compact (~96px); clamp so it never runs off a narrow element's
+    // left. Nudged 4px right so it overhangs the corner cleanly.
+    const pillW = 96;
+    commentPill.style.top = (window.scrollY + r.top - 13) + 'px';
+    commentPill.style.left = (window.scrollX + Math.max(r.left + 8, r.right - pillW + 4)) + 'px';
     commentPill.onclick = (e) => {
       e.stopPropagation();
       e.preventDefault();

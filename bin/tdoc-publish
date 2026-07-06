@@ -41,8 +41,9 @@ Set the server you want to publish to (self-hosted octo-doc):
     export TDOC_BASE_URL="https://your-host"     # or http://localhost:8080
     export TDOC_TOKEN="<write token>"            # from: octo-doc bootstrap
 
-To get a token from a fresh server:
-    curl -s "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
+To get a token from a fresh server (only when it was NOT started with a static
+WRITE_TOKEN — bootstrap is disabled once one is configured):
+    curl -sS -X POST "$TDOC_BASE_URL/v1/admin/bootstrap" | jq -r .data.token
 
 Then re-run: /tdoc publish $SLUG
 EOF
@@ -52,7 +53,7 @@ BASE_URL="${BASE_URL%/}"
 
 if [ -z "$TOKEN" ]; then
   echo "[tdoc] no write token. Set TDOC_TOKEN or add it to $CONFIG_FILE." >&2
-  echo "       Get one with: curl -s \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token" >&2
+  echo "       Get one with: curl -sS -X POST \"$BASE_URL/v1/admin/bootstrap\" | jq -r .data.token" >&2
   exit 1
 fi
 
