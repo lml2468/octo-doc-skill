@@ -9,7 +9,7 @@ description: |
   self-hosted octo-doc server with text- and artifact-anchored inline
   commenting, and regenerate new versions from comments. Docs are
   private by default; a per-doc share code grants read + comment
-  (Docker, no Cloudflare).
+  (Docker, self-hosted).
 
   Use when asked to "write a doc", "draft this", "publish this",
   "design doc", "PRD", "one-pager", "research write-up", "case study",
