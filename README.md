@@ -80,8 +80,8 @@ export OCTO_TOKEN="<write token>"   # from: octo-doc bootstrap
 
 See [SKILL.md](SKILL.md) for the full command surface (`new`, `edit`, `publish`,
 `share`, `pull`, `fork`, `list`, `comment`, `react`, `reply`, `doctor`,
-`unpublish`, `onboard`, `update`). Config resolves from `OCTO_*` env (the legacy
-`TDOC_*` names still work as a fallback) then `~/.octo/config.json`.
+`unpublish`, `onboard`, `update`). Config resolves from `OCTO_*` env then
+`~/.octo/config.json`.
 
 ## Credits
 

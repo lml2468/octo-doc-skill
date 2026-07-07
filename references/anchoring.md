@@ -16,9 +16,9 @@ Comments are persisted with one of two anchor shapes:
   "status": "open", "created": "<iso>",
   "anchor": { "kind": "element",
               "aid": "<content-hash>",        // primary key: the server-stamped
-                                              //   data-tdoc-aid on the artifact.
+                                              //   data-odoc-aid on the artifact.
                                               //   Same artifact across versions = same aid.
-              "selector": "[data-tdoc-aid=\"...\"]",  // mirror of aid; legacy
+              "selector": "[data-odoc-aid=\"...\"]",  // mirror of aid; legacy
                                                        // comments may still carry
                                                        // a positional selector.
               "label": "svg",                 // tag hint
@@ -37,7 +37,7 @@ same text appears multiple times. If the text no longer exists, apply as a
 general directive.
 
 **Element anchors:** identity is the **`aid`** — the server auto-stamps
-`data-tdoc-aid="<content-hash>"` on every commentable artifact at publish time and
+`data-odoc-aid="<content-hash>"` on every commentable artifact at publish time and
 reconciles existing anchors against the new artifact set on every upload. You
 don't preserve ids manually; just regenerate the doc naturally. Comments on
 unchanged artifacts stay anchored; comments on artifacts you genuinely replaced go

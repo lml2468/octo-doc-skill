@@ -76,7 +76,7 @@ Every doc must work on mobile out of the box:
 
 - **Don't define `button:hover { background: ... }` globally** — it overrides the
   overlay's Comment pill on artifacts. Scope hover rules (`.my-btn:hover`).
-- **Don't use `tdoc-*` / `#tdoc-*` ids or classes** — reserved by the overlay.
+- **Don't use `odoc-*` / `#odoc-*` ids or classes** — reserved by the overlay.
 - **Don't position-fixed elements at the top** — the overlay's 44px top bar lives there.
 - **Don't add a bottom footer** — the overlay injects its own.
 
@@ -84,13 +84,13 @@ Every doc must work on mobile out of the box:
 
 **The system handles this for you.** Element anchors are identity-based, not
 path-based: at publish time the server stamps every commentable artifact with a
-content-hashed `data-tdoc-aid`. Commentable artifacts:
+content-hashed `data-odoc-aid`. Commentable artifacts:
 
 - **Media leaves:** `img, svg, canvas, video, pre, figure, iframe[src]`
 - **Semantic blocks:** `section, aside, blockquote, table, details` (`article` is
   intentionally excluded — it would make the whole doc one artifact)
-- **Author opt-in:** any element tagged `data-tdoc-artifact` or with a class
-  containing `tdoc-artifact`
+- **Author opt-in:** any element tagged `data-odoc-artifact` or with a class
+  containing `odoc-artifact`
 
 The **same artifact in any future version gets the same aid**, regardless of how
 the surrounding HTML is restructured. Resolution is identity-first. If an aid
@@ -104,8 +104,8 @@ default (the overlay sees inner text, not the card). Two fixes:
 
 1. **Semantic tag:** `<div class="my-card">` → `<section class="my-card">` (or
    `<aside>`, `<details>`). Automatic.
-2. **Opt in:** `<div class="my-card" data-tdoc-artifact>…</div>` (or a class
-   containing `tdoc-artifact`). Works on any tag.
+2. **Opt in:** `<div class="my-card" data-odoc-artifact>…</div>` (or a class
+   containing `odoc-artifact`). Works on any tag.
 
 Both give the block a stable aid and the full hover-to-comment affordance.
 

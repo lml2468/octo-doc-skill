@@ -86,7 +86,7 @@ description: |
     <body><div class="wrap">
       <h1>...</h1>
       <!-- your sections, with author-composed wrappers tagged
-           data-tdoc-artifact wherever you want a comment surface -->
+           data-odoc-artifact wherever you want a comment surface -->
     </div></body></html>
     HTML
 
@@ -178,15 +178,14 @@ Install it (see `/octo onboard`): download the prebuilt binary for your platform
 from the [releases page](https://github.com/Mininglamp-OSS/octo-doc/releases) and
 put `octo` on your PATH, or `go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest`.
 
-Config (env wins, then `~/.octo/config.json`; the legacy `TDOC_*` names and
-`~/.tdoc/config.json` are still read as fallbacks):
+Config (env wins, then `~/.octo/config.json`):
 
 | Var | Purpose |
 | --- | ------- |
 | `OCTO_BASE_URL` | server to author against (e.g. `https://docs.example.com`) |
 | `OCTO_TOKEN` | write token — the **author** credential (`Authorization: Bearer`) |
 | `OCTO_CODE` | a doc share **code** — the **reader** credential (for pull/comment) |
-| `OCTO_DIR` | local working copy (default `~/octo-docs`, else an existing `~/tdocs`) |
+| `OCTO_DIR` | local working copy (default `~/octo-docs`) |
 
 ## Access model
 
