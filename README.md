@@ -1,13 +1,13 @@
 # octo-doc-skill
 
-The **octo agent skill** for [octo-doc](https://github.com/Mininglamp-OSS/octo-doc)
+The **octo agent skill** for [octo-doc](https://github.com/lml2468/octo-doc)
 — a Claude Code / Codex skill that turns a prompt into a self-contained interactive
 HTML document, publishes it to your self-hosted octo-doc server with text- and
 artifact-anchored commenting, and iterates it from the comments.
 
 This repository contains only the agent-side authoring guide. All mechanical work
 is done by the **`octo` CLI**, a single static binary built from the
-[octo-doc](https://github.com/Mininglamp-OSS/octo-doc) repo (`cmd/octo`). The
+[octo-doc](https://github.com/lml2468/octo-doc) repo (`cmd/octo`). The
 server it authors against lives there too (a Go service backed by PostgreSQL + S3).
 
 ## How it fits together
@@ -32,7 +32,7 @@ The skill tracks the octo-doc server's contract through the `octo` CLI:
   token>`; responses are unwrapped from `{ "data": … }`.
 - **Access:** documents are **private by default**. The write token = author; a
   per-doc share **code** (`octo share`) grants read + comment. See
-  [docs/AUTH.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/AUTH.md).
+  [docs/AUTH.md](https://github.com/lml2468/octo-doc/blob/main/docs/AUTH.md).
 - **Bootstrap:** `POST /v1/admin/bootstrap` mints the first write token, and only
   when the server was started without a static `WRITE_TOKEN`.
 - **Overlay:** the server embeds octo-doc's canonical `assets/overlay.js` — there
@@ -61,9 +61,9 @@ Then install the `octo` CLI (or run `/octo onboard`, which does this for you):
 
 ```bash
 # Prebuilt binary — pick your platform from the releases page:
-#   https://github.com/Mininglamp-OSS/octo-doc/releases
+#   https://github.com/lml2468/octo-doc/releases
 # Download octo_<os>_<arch>, chmod +x, and put it on your PATH. Or, with Go:
-go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest
+go install github.com/lml2468/octo-doc/cmd/octo@latest
 ```
 
 ## Usage
