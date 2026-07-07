@@ -170,13 +170,13 @@ address comments. The CLI is a single static binary; no `jq`/`curl`/`node`.
 
 ## The `octo` CLI
 
-One binary, built from the [octo-doc](https://github.com/Mininglamp-OSS/octo-doc)
+One binary, built from the [octo-doc](https://github.com/lml2468/octo-doc)
 repo (`cmd/octo`). Authoring and preview happen against a running octo-doc server
 (a hosted instance, or the local Docker stack) — there is no local preview server.
 
 Install it (see `/octo onboard`): download the prebuilt binary for your platform
-from the [releases page](https://github.com/Mininglamp-OSS/octo-doc/releases) and
-put `octo` on your PATH, or `go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest`.
+from the [releases page](https://github.com/lml2468/octo-doc/releases) and
+put `octo` on your PATH, or `go install github.com/lml2468/octo-doc/cmd/octo@latest`.
 
 Config (env wins, then `~/.octo/config.json`):
 
@@ -197,7 +197,7 @@ Config (env wins, then `~/.octo/config.json`):
 
 Browsers carry the code as `?code=` (exchanged for an HttpOnly cookie); the CLI
 sends the credential as `Authorization: Bearer`. Full model:
-[docs/AUTH.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/AUTH.md).
+[docs/AUTH.md](https://github.com/lml2468/octo-doc/blob/main/docs/AUTH.md).
 
 ## Storage layout (local working copy)
 
@@ -324,7 +324,7 @@ so later commands need no env. The write token is sent as `Authorization: Bearer
 
 > **Self-hosting the server:** `docker compose up -d` (app + Caddy auto-TLS). ~15
 > min on a $5 VPS — see
-> [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md).
+> [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
 
 ### `/octo share <slug>` — make it readable + commentable
 
@@ -365,8 +365,8 @@ output, not assumed state.
 
 1. Check the CLI is installed: `command -v octo`. If not, install it — download the
    release binary for the user's platform from
-   [releases](https://github.com/Mininglamp-OSS/octo-doc/releases) and put it on
-   PATH, or `go install github.com/Mininglamp-OSS/octo-doc/cmd/octo@latest`.
+   [releases](https://github.com/lml2468/octo-doc/releases) and put it on
+   PATH, or `go install github.com/lml2468/octo-doc/cmd/octo@latest`.
 2. Run `octo doctor` (non-destructive).
 3. Check whether a server is configured (`OCTO_BASE_URL` / `~/.octo/config.json`).
    If not, ask the user whether to:
@@ -375,7 +375,7 @@ output, not assumed state.
      `curl -sS -X POST "$OCTO_BASE_URL/v1/admin/bootstrap" | jq -r .data.token`,
      set `OCTO_TOKEN`.
    - **stand up their own** →
-     [SELF_HOSTING.md](https://github.com/Mininglamp-OSS/octo-doc/blob/main/docs/SELF_HOSTING.md).
+     [SELF_HOSTING.md](https://github.com/lml2468/octo-doc/blob/main/docs/SELF_HOSTING.md).
 4. Once `octo doctor` reports the server reachable + a token configured, offer to
    create + publish a sample doc: `/octo new` → `/octo publish` → `/octo share`.
 
@@ -392,7 +392,7 @@ octo update            # download + checksum-verify + replace the binary
 ```
 
 `octo update` fetches the latest
-[release](https://github.com/Mininglamp-OSS/octo-doc/releases), verifies against
+[release](https://github.com/lml2468/octo-doc/releases), verifies against
 `SHA256SUMS`, and atomically replaces the running binary.
 
 ### `/octo doctor` — health check, no changes
