@@ -301,6 +301,44 @@ octo fork <slug> [<new-slug>]
 Copies the local working copy under a new slug, resets its comments, and marks the
 title `(fork)`. Defaults the new slug to `<slug>-fork`.
 
+### `/octo asset-add` — self-host an image / video / PDF
+
+Docs are self-contained HTML, but large media should not be base64-inlined (it
+bloats the doc and every render) or hot-linked to a third-party CDN (breaks the
+"self-hosted, immutable" model). Instead upload it as a **per-doc asset** and
+reference the returned same-origin URL from your HTML:
+
+```bash
+octo asset-add --slug <slug> <file>        # → prints  <base>/d/<slug>/assets/<sha>
+octo asset-add --slug <slug> <file> --quiet  # print only the URL (for scripting)
+octo asset-list --slug <slug>              # list a doc's assets (full sha, mime, size)
+octo asset-rm  --slug <slug> <sha256>      # delete one asset by its full 64-char hash
+```
+
+Assets are content-addressed (dedup + immutable), inherit the doc's access control
+(a private doc's media is not public), and are served under a locked-down CSP. Use
+this when a doc embeds photos, screenshots, audio/video, or a PDF:
+
+```html
+<img src="/d/<slug>/assets/<sha>" alt="...">
+<video src="/d/<slug>/assets/<sha>" controls></video>
+<object data="/d/<slug>/assets/<sha>" type="application/pdf" width="100%" height="800"></object>
+```
+
+Upload and delete are **author** ops (need the write token); listing needs only a
+reader capability. Small inline SVG/diagrams you author in the HTML don't need
+this — it's for binary files you'd otherwise inline or hot-link.
+
+**Author locally, publish self-contained:** if you wrote the HTML with local media
+references (`<img src="./chart.png">`), pass `--rewrite-assets` to `octo new` /
+`octo version-add` — it uploads each referenced local file (`src`/`poster`/`data`/
+`srcset`/CSS `url()`) and rewrites the reference to the asset URL before saving the
+draft. `--rewrite-assets=dry` previews the uploads without changing anything.
+
+```bash
+octo new --slug <slug> --title "<title>" --html-file ./index.html --rewrite-assets
+```
+
 ### `/octo list` — show all docs
 
 ```bash

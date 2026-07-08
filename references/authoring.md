@@ -8,6 +8,14 @@ Rules for generating a doc's `index.html` (referenced by `/octo new` and
 - **Self-contained:** one HTML file. No imports, no external scripts (unless the
   user explicitly wants e.g. a D3 CDN). All CSS inline in `<style>`, all JS inline
   in `<script>`. No build step.
+- **Large media → per-doc assets, not base64/hot-link.** Inline small SVG/diagrams
+  you author directly. But for binary media (photos, screenshots, audio, video,
+  PDF), don't base64-inline it (bloats the doc + every render, and is bounded by
+  `MAX_HTML_BYTES`) and don't hot-link a third-party CDN (breaks self-containment).
+  Upload it with `octo asset-add --slug <slug> <file>` and reference the returned
+  same-origin URL (`/d/<slug>/assets/<sha>`). If you authored with local paths,
+  `octo new --rewrite-assets` uploads and rewrites them for you. See SKILL.md
+  `/octo asset-add`.
 - **Sandboxed-safe:** the server serves docs inside an iframe overlay-host, so
   don't rely on top-level navigation or parent-frame access.
 - **The comment overlay is injected by the server** — don't add commenting UI
