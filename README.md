@@ -1,5 +1,13 @@
 # octo-doc-skill
 
+> [!WARNING]
+> **Deprecated.** This skill was a thin authoring layer over the `octo` client
+> CLI, which has been **removed** from the [octo-doc](https://github.com/lml2468/octo-doc)
+> repo — that repo is now an **API-only** server. The client is being re-created as
+> a standalone **`octo-cli`** project; a replacement skill will target it. Until
+> then, drive octo-doc directly via its `/v1` API (see the octo-doc README and
+> `docs/ARCHITECTURE.md`). This repo is no longer maintained.
+
 The **octo agent skill** for [octo-doc](https://github.com/lml2468/octo-doc)
 — a Claude Code / Codex skill that turns a prompt into a self-contained interactive
 HTML document, publishes it to your self-hosted octo-doc server with text- and
